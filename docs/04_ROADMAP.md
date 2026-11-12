@@ -34,16 +34,23 @@ Exit criteria met: a stranger can sit down and finish a mission, and the systems
 - Mission data asset + mission manager (objectives, checkpoints, intel, dialogue beats)
 - Game mode, player controller, progress subsystem, save game, HUD/pause C++ models, user settings
 - World actors: intel pickup, objective trigger, extraction point
-- Editor build script for mission data assets and maps
+- Front end: menu subsystem, main-menu controller/widget model, menu game mode
+- Procedural graybox range (`ASPGrayboxLevel`) + `ASPGrayboxGameMode` test mission, so an
+  empty level is playable with no authored assets
+- Editor build script for mission data assets and maps; static verification tool
 
 Exit criteria met at the source level. **Not compiled** — no UE toolchain in the authoring
 environment. See `docs/03_TECHNICAL_ARCHITECTURE.md` §8.
 
 ---
 
-## M3 — Chapter 01 blockout **[ ]** ← next
+## M3 — Chapter 01 blockout **[~]** ← in progress
 
 *Goal: the first chapter exists as playable space.*
+
+The procedural graybox range already provides playable geometry at correct scale
+(canal 170 m, berm 8 m, 240 cm trench walls, 45 m depot yard). What remains is authored
+blockout with real art direction instead of engine cubes.
 
 - `L_Chapter01_Crossing`: staging area → berm breach → trench network → strongpoint 4 → Qantara road depot
 - Grey-box geometry at correct scale (180 m of trench, 60 m berm frontage, depot yard 40×25 m)

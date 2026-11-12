@@ -19,13 +19,15 @@ what remains. It is written to be honest: nothing is described as finished unles
   Content/Data/                DT_Objectives.csv + generated data assets (see §9)
   Tools/build_mission_assets.py  editor Python: builds mission data assets and maps
   Source/ShadowProtocol/
-    Core/       ShadowProtocolTypes · SPGameMode · SPPlayerController · SPProgressSubsystem · SPSaveGame · SPGameUserSettings
+    Core/       ShadowProtocolTypes · SPGameMode · SPGrayboxGameMode · SPMenuGameMode
+                SPPlayerController · SPMainMenuController · SPMenuSubsystem
+                SPProgressSubsystem · SPSaveGame · SPGameUserSettings
     Character/  SPCharacter · SPCharacterMovementComponent
     Weapons/    SPWeaponData · SPWeaponComponent
     AI/         SPAIController · SPEnemyCharacter · SPSquadMember
     Mission/    SPMissionData · SPMissionManager
-    UI/         SPHUDWidget · SPPauseMenuWidget
-    World/      SPIntelPickup · SPObjectiveTrigger · SPExtractionPoint
+    UI/         SPHUDWidget · SPPauseMenuWidget · SPMainMenuWidget
+    World/      SPIntelPickup · SPObjectiveTrigger · SPExtractionPoint · SPGrayboxLevel
 ```
 
 ---
@@ -49,6 +51,11 @@ what remains. It is written to be honest: nothing is described as finished unles
 | `USPGameUserSettings` | Persisted options: subtitles (EN/AR), sensitivity, audio buses, graphics presets | Implemented |
 | `USPHUDWidget` | Presentation-only HUD data model + Blueprint events (layout authored in UMG) | C++ side implemented; **widget Blueprints not authored** |
 | `USPPauseMenuWidget` | Pause surface wired to real functions | C++ side implemented; **widget Blueprint not authored** |
+| `ASPMenuSubsystem` | Front-end state machine: new campaign, continue, chapter select, settings, quit. Chapter buttons are enabled only when the save *and* the level file support them | Implemented |
+| `ASPMainMenuController` / `USPMainMenuWidget` | Front-end controller + widget data model | C++ side implemented; **widget Blueprint not authored** |
+| `ASPMenuGameMode` | Front-end session (no pawn, no combat systems) | Implemented |
+| `ASPGrayboxLevel` | Procedural 1973 crossing test range built from engine primitives | Implemented |
+| `ASPGrayboxGameMode` | Spawns the range + a code-defined test mission so the project runs with zero authored assets | Implemented |
 | `ASPMissionData` | Chapter-mission definition asset | Implemented |
 | `ASPIntelPickup` / `ASPObjectiveTrigger` / `ASPExtractionPoint` | Level-authored mission plumbing | Implemented |
 
@@ -135,11 +142,22 @@ Adding Chapter 03 is authoring one asset and one level — no engineering work.
 
 ---
 
+## 7b. Front end
+
+Two sessions, deliberately separate:
+
+- **`L_MainMenu` + `ASPMenuGameMode`**: spectator pawn, mouse-driven UI. `USPMenuSubsystem`
+  owns the screen state and all actions. New Campaign really resets progress; Continue really
+  loads the save; Chapter Select disables a chapter when either the save hasn't unlocked it
+  **or** its `.umap` is not on disk, and says which. No button is decorative.
+- **`L_GrayboxRange` + `ASPGrayboxGameMode`**: the playable range, built procedurally.
+
 ## 8. Build & verification status
 
 | Item | Status |
 |---|---|
 | C++ compiles | **Not verified.** No UE toolchain in the authoring environment. All files are hand-reviewed; a header/definition/balance checker (17 pairs) was run against the tree. |
+| Static source checks | **Present and clean**: `python3 ShadowProtocol/Tools/verify_source.py` — 27 headers, 24 sources, 24 pairs, 0 findings (undeclared definitions, missing includes, `.generated.h` ordering, delimiter balance, copy-paste artefacts). |
 | Headless gameplay tests | **Not present in UE.** The browser slice carries 32 automated behaviour checks instead. |
 | Browser slice | **Verified**: `cd web && node tools/simtest.mjs` → 32 passed, 0 failed; `npx vite build` succeeds. |
 | Editor content (levels, UMG, meshes, sequences, audio) | **Not authored.** `Tools/build_mission_assets.py` creates the data assets and empty maps; blockout and art are outstanding work. |
@@ -180,7 +198,7 @@ Full bindings: `Config/DefaultInput.ini`.
 ## 11. Known gaps (deliberately listed)
 
 1. Levels are empty maps — no blockout geometry, lighting, or art.
-2. UMG widget Blueprints (`WBP_HUD`, `WBP_Pause`) are not authored; the C++ data model and events exist.
+2. UMG widget Blueprints (`WBP_HUD`, `WBP_Pause`, `WBP_MainMenu`) are not authored; the C++ data model and events exist, and the menu warns in the log when its class is unset.
 3. Animation Blueprints, character meshes, weapon meshes and animation sets are not authored.
 4. Level Sequences for briefings/cinematics are not authored.
 5. Audio assets (VO, weapons, ambience, music) are not authored; `docs/05_AUDIO_AND_VO.md` specifies them.

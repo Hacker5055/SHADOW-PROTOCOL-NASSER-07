@@ -17,7 +17,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
 | `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapter 01 *The Crossing* (1973) and Chapter 02 *The Silent Mission* (modern), menus, HUD, squad AI, enemy AI, checkpoints | **Playable now** in any modern browser |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
-| `ShadowProtocol/Tools/` | Editor Python that builds mission data assets + maps from `Content/Data` | Written; run inside UE |
+| `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 
 The two implementations share one design. `docs/03_TECHNICAL_ARCHITECTURE.md` contains the
 **parity matrix** that maps every browser gameplay system to its Unreal C++ class.
@@ -75,9 +75,9 @@ cd web && npm run build && npm run preview
    the *Game development with C++* workload.
 2. Right-click `ShadowProtocol/ShadowProtocol.uproject` → **Generate Visual Studio project files**.
 3. Build `ShadowProtocolEditor` (Development Editor, Win64) and open the project.
-4. Create an **empty level** (File → New Level → Empty Level), add one **SPGrayboxLevel** actor,
-   and press **Play** — or run `ShadowProtocol/Tools/build_mission_assets.py` in the editor,
-   which creates `L_GrayboxRange` for you.
+4. Create an **empty level** (File → New Level → Empty Level) and press **Play** — the project's
+   default game mode builds the range itself. Or run `ShadowProtocol/Tools/build_mission_assets.py`
+   in the editor, which creates `L_GrayboxRange`, `L_MainMenu` and the mission data assets.
 5. `SPGrayboxGameMode` (the project default) then builds the **SPGrayboxRange** test mission in
    code: procedural 1973 crossing geometry (canal, sand berm with a breached lane, trench
    network, three strongpoints, Qantara depot yard), two squad members, hostiles per
@@ -86,6 +86,12 @@ cd web && npm run build && npm run preview
 What that range is: a **playable test range** built from engine primitives. It proves the
 systems work together. It is *not* shipping art — there are no meshes, materials, animations,
 audio or cinematics in the project yet (see `docs/03_TECHNICAL_ARCHITECTURE.md` §11).
+
+The front end (`USPMenuSubsystem`, `ASPMainMenuController`, `USPMenuWidget`) implements New Campaign,
+Continue, Chapter Selection, Settings, Credits and Exit as real actions. Chapter buttons are
+enabled only when the save has unlocked the chapter **and** its level exists on disk; otherwise
+the menu says so instead of silently failing. The menus need their UMG Blueprints
+(`WBP_MainMenu`) authored before they draw — until then the controller logs a warning.
 
 Project config in `ShadowProtocol/Config/` sets Lumen, Nanite, virtual shadow maps,
 volumetric fog, DX12/SM6, the input bindings (K/M + gamepad), collision profiles and the
