@@ -171,6 +171,19 @@ const css = `
 #chapter-card .cc-title{font-size:clamp(38px,6.4vw,86px);line-height:.96;letter-spacing:.02em;font-weight:700;margin-bottom:14px}
 #chapter-card .cc-sub{font-size:13px;letter-spacing:.2em;color:rgba(232,226,208,.6);line-height:1.7}
 #chapter-card .cc-rule{width:88px;height:2px;background:var(--orange);margin:20px 0}
+#choice{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,rgba(8,10,9,.86),rgba(8,10,9,.94));z-index:60;pointer-events:none}
+#choice.show{display:flex;pointer-events:auto}
+#choice .card{width:min(760px,88vw);border:1px solid rgba(232,226,208,.22);background:rgba(16,19,17,.96);
+  padding:34px 38px 28px;box-shadow:0 40px 90px rgba(0,0,0,.7)}
+#choice .eyebrow{font-size:10px;letter-spacing:.4em;color:var(--orange);margin-bottom:12px}
+#choice .prompt{font-size:22px;line-height:1.32;color:#e8e2d0;margin-bottom:6px}
+#choice .prompt-ar{direction:rtl;font-size:16px;color:rgba(232,226,208,.62);margin-bottom:24px}
+#choice .opt{display:block;width:100%;text-align:left;background:transparent;border:1px solid rgba(232,226,208,.18);
+  color:#d9d3c3;padding:14px 16px;margin-bottom:10px;cursor:pointer;font-family:inherit;transition:.15s}
+#choice .opt:hover,#choice .opt.sel{border-color:var(--orange);background:rgba(214,110,42,.1);color:#fff}
+#choice .opt .n{color:var(--orange);margin-right:10px;font-variant-numeric:tabular-nums}
+#choice .opt .ar{display:block;direction:rtl;font-size:13px;opacity:.62;margin-top:4px}
 `
 
 export class HUD {
@@ -235,6 +248,15 @@ export class HUD {
       <div id="interact"><b>[F]</b> <span id="interact-label">INTERACT</span></div>
       <div id="subtitles"></div>
 
+      <div id="choice">
+        <div class="card">
+          <div class="eyebrow">DECISION</div>
+          <div class="prompt" id="choice-prompt"></div>
+          <div class="prompt-ar" id="choice-prompt-ar"></div>
+          <div id="choice-options"></div>
+        </div>
+      </div>
+
       <div id="objectives-overlay">
         <h2>MISSION FILE · <span id="ovl-code">OP</span></h2>
         <h3 id="ovl-title">OBJECTIVES</h3>
@@ -260,7 +282,7 @@ export class HUD {
       'fire-mode', 'reload-bar', 'reload-fill', 'grenade-count', 'crosshair', 'hitmarker', 'headshot-tag', 'feed',
       'prompt', 'interact', 'interact-label', 'subtitles', 'objectives-overlay', 'ovl-list', 'ovl-title', 'ovl-code',
       'ovl-intel', 'chip-nvg', 'chip-supp', 'chip-stealth', 'dmg-vignette', 'chapter-card', 'cc-era', 'cc-num',
-      'cc-title', 'cc-sub']) {
+      'cc-title', 'cc-sub', 'choice', 'choice-prompt', 'choice-prompt-ar', 'choice-options']) {
       this.el[id] = this.root.querySelector(`#${id}`);
     }
     this._buildCompass();
@@ -585,6 +607,55 @@ export class HUD {
       card.style.opacity = '0';
       setTimeout(() => card.classList.remove('show'), 900);
     }, duration);
+  }
+
+  /**
+   * Present a branching decision. Real: the chosen option's apply() runs, and the
+   * game is paused while the card is up. Keyboard 1..n, arrows+Enter, or click.
+   * @param {{prompt:string,promptAr?:string,options:Array<{id:string,text:string,textAr?:string,apply:Function}>}} spec
+   */
+  showChoice({ prompt, promptAr = '', options = [] }) {
+    if (!options.length) return;
+    this.choice = { options, index: 0 };
+    this.el['choice-prompt'].textContent = prompt;
+    this.el['choice-prompt-ar'].textContent = promptAr;
+    this._renderChoice();
+    this.el['choice'].classList.add('show');
+    if (this.game) this.game.choiceOpen = true;
+    this.game?.audio?.uiClick?.();
+  }
+
+  _renderChoice() {
+    const { options, index } = this.choice;
+    this.el['choice-options'].innerHTML = options.map((o, i) => `
+      <button class="opt ${i === index ? 'sel' : ''}" data-choice="${i}">
+        <span class="n">${String(i + 1).padStart(2, '0')}</span>${o.text}
+        ${o.textAr ? `<span class="ar">${o.textAr}</span>` : ''}
+      </button>`).join('');
+    for (const btn of this.el['choice-options'].querySelectorAll('.opt')) {
+      btn.addEventListener('mouseenter', () => { this.choice.index = Number(btn.dataset.choice); this._renderChoice(); });
+      btn.addEventListener('click', () => this.commitChoice(Number(btn.dataset.choice)));
+    }
+  }
+
+  moveChoice(delta) {
+    if (!this.choice) return;
+    const n = this.choice.options.length;
+    this.choice.index = (this.choice.index + delta + n) % n;
+    this._renderChoice();
+  }
+
+  commitChoice(index = null) {
+    if (!this.choice) return false;
+    const i = index === null ? this.choice.index : index;
+    const option = this.choice.options[i];
+    if (!option) return false;
+    this.el['choice'].classList.remove('show');
+    this.game.choiceOpen = false;
+    this.choice = null;
+    this.game?.audio?.uiConfirm?.();
+    option.apply();
+    return true;
   }
 
   clearSubtitles() {

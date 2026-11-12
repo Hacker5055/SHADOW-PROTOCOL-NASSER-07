@@ -159,7 +159,7 @@ Two sessions, deliberately separate:
 | C++ compiles | **Not verified.** No UE toolchain in the authoring environment. All files are hand-reviewed; a header/definition/balance checker (17 pairs) was run against the tree. |
 | Static source checks | **Present and clean**: `python3 ShadowProtocol/Tools/verify_source.py` — 27 headers, 24 sources, 24 pairs, 0 findings (undeclared definitions, missing includes, `.generated.h` ordering, delimiter balance, copy-paste artefacts). |
 | Headless gameplay tests | **Not present in UE.** The browser slice carries 32 automated behaviour checks instead. |
-| Browser slice | **Verified**: `cd web && node tools/simtest.mjs` → 32 passed, 0 failed; `npx vite build` succeeds. |
+| Browser slice | **Verified**: `cd web && node tools/simtest.mjs` → 38 passed, 0 failed; `npx vite build` succeeds; dev server serves all four missions. |
 | Editor content (levels, UMG, meshes, sequences, audio) | **Not authored.** `Tools/build_mission_assets.py` creates the data assets and empty maps; blockout and art are outstanding work. |
 
 What that means in plain terms: the systems exist and are written to be compiled, but the
@@ -219,9 +219,11 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/weapons.js` — loadout, recoil, reload, era gate | `USPWeaponData`, `USPWeaponComponent` | Same era-gate rule; UE adds hit zones and suppression volume |
 | `game/ai.js` — perception, states, squad steering, `steer()` nav sampler | `ASPAIController`, `ASPSquadMember` | UE uses navmesh + `UPawnMovementComponent`; the slice's `steer()` has no UE analogue because the engine provides one |
 | `game/mission.js` — objectives, hooks, checkpoints | `ASPMissionManager`, `USPMissionData` | UE moves objective definitions into data assets |
+| `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
 | `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |
 | `game/save.js` — checkpoint + campaign state | `USPSaveGame`, `USPProgressSubsystem` | UE persists to slot files + config |
 | `ui/menu.js`, `ui/hud.js` | `USPHUDWidget`, `USPPauseMenuWidget` | UE HUD data model is C++; layout is UMG |
 | `engine/physics.js` — collider push-out | engine `UCharacterMovementComponent` collision | Not reimplemented |
-| `tools/simtest.mjs` — 32 checks | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |
+| `levels/chapter03.js` + `libCairo.js` — Cairo hub | objective rows in `Content/Data/DT_Objectives.csv`; mission spec in `Tools/build_mission_assets.py`; **no UE level yet** | Content parity for the design, not for the build |
+| `tools/simtest.mjs` — 38 checks (4 missions) | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |

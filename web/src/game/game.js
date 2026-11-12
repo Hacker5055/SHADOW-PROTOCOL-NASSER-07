@@ -63,6 +63,18 @@ export class Game {
     this.onMissionComplete = this.onMissionComplete.bind(this);
 
     window.addEventListener('keydown', (e) => {
+      // A branching decision takes the keyboard while it is open.
+      if (this.choiceOpen) {
+        if (e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); this.hud.moveChoice(-1); return; }
+        if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); this.hud.moveChoice(1); return; }
+        if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyE') { e.preventDefault(); this.hud.commitChoice(); return; }
+        if (/^Digit[1-9]$/.test(e.code)) {
+          e.preventDefault();
+          this.hud.commitChoice(Number(e.code.slice(5)) - 1);
+          return;
+        }
+      }
+
       if (e.code === 'Escape') {
         if (this.state === 'playing') this.pause();
         else if (this.state === 'paused') this.resume();
@@ -99,6 +111,10 @@ export class Game {
   registerMission(def, builder) {
     this.missions.set(def.id, { def, builder });
   }
+
+  /** True while a branching decision card is on screen (world is frozen). */
+  get choiceOpen() { return !!this._choiceOpen; }
+  set choiceOpen(v) { this._choiceOpen = !!v; }
 
   // ------------------------------------------------------------------ flow
   startMission(id, { fromCheckpoint = false } = {}) {
@@ -399,8 +415,11 @@ export class Game {
     const dtRaw = Math.min(0.05, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
 
-    if (this.state === 'playing' && !this.paused) {
+    if (this.state === 'playing' && !this.paused && !this.choiceOpen) {
       this.step(dtRaw);
+    } else if (this.choiceOpen) {
+      // A decision card freezes the world; only presentation keeps running.
+      this.stepVisualOnly(dtRaw * 0.35);
     } else if (this.state === 'dead' || this.state === 'complete') {
       // keep rendering for the menu backdrop
       this.stepVisualOnly(dtRaw);

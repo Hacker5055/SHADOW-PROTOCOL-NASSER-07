@@ -9,3 +9,9 @@ Ch02_1_SeaWall,ch02_sea_wall,"Get over the sea wall undetected","تسلل عبر
 Ch02_2_Cells,ch02_find_cells,"Locate the holding cells","حدد موقع الزنازين",False,False,True,300,5600,30,2,ch02_silent
 Ch02_3_Server,ch02_recover_server,"Recover the server rack (optional)","استعد خزانة الخوادم (اختياري)",True,False,False,0,0,0,2,ch02_silent
 Ch02_4_Roof,ch02_roof_extract,"Hold the roof until the helicopter lands","اصمد على السطح حتى هبوط الطائرة",False,False,True,760,6100,180,2,ch02_silent
+Ch03_1_Zidan,ch03_report_zidan,"Report to Gen. Zidan on the operations floor","ابلغ اللواء زيدان في طابق العمليات",False,False,True,0,1200,100,3,ch03_black_file
+Ch03_2_Courtyard,ch03_cross_courtyard,"Cross the courtyard to the archive wing","اعبر الفناء إلى جناح الأرشيف",False,False,True,0,-1800,100,3,ch03_black_file
+Ch03_3_Amethyst,ch03_request_amethyst,"Request the AMETHYST clearance file","اطلب ملف تصريح أميثيست",False,False,True,0,-4600,100,3,ch03_black_file
+Ch03_Opt_Ledger,ch03_find_ledger,"Search the archive for the ledger's second half","ابحث في الأرشيف عن النصف الثاني من الدفتر",True,False,False,0,0,0,3,ch03_black_file
+Ch03_Opt_Decision,ch03_decide_scan,"Decide what to do with the Box 07 scan","قرر ما ستفعله بنسخة صندوق ٠٧",True,False,False,0,0,0,3,ch03_black_file
+Ch03_4_Ambush,ch03_survive_ambush,"Survive the rooftop ambush","اصمد أمام كمين السطح",False,False,True,-1120,-4650,560,3,ch03_black_file

@@ -69,6 +69,15 @@ export class Enemy {
     this.lastShout = -99;
     this.shotCount = 0;
 
+    // Scripted states used by hub chapters (e.g. Ch.03 Directorate):
+    //  holdFire — alerted but ordered not to shoot (guards during a briefing)
+    //  dormant  — not yet in play (an ambush that has not sprung)
+    //  hidden   — whole actor kept off the field until it wakes
+    this.holdFire = !!cfg.holdFire;
+    this.dormant = !!cfg.dormant;
+    this.hidden = !!cfg.hidden;
+    this.faction = cfg.faction || 'enemy';
+
     // model
     const palette = cfg.palette || (this.era === '1973' ? PALETTE.israeli1973 : PALETTE.nkGuard);
     this.soldier = buildSoldier(palette, { era: this.era === '1973' ? '1973' : 'modern', radio: this.role === 'officer' });
@@ -227,6 +236,16 @@ export class Enemy {
 
   update(dt) {
     const g = this.game;
+
+    // Dormant or hidden actors are inert: no perception, no movement, no model.
+    if (this.dormant || this.hidden) {
+      this.mesh.visible = !this.hidden;
+      this.awareness = 0;
+      this.alerted = false;
+      return;
+    }
+    this.mesh.visible = true;
+
     if (this.dead) {
       this.deadT += dt;
       // settle the body
@@ -249,7 +268,8 @@ export class Enemy {
 
     if (sees && this.awareness > 0.35 && !this.alerted) {
       this.alerted = true;
-      this.state = ENEMY_STATE.COMBAT;
+      // A guard under hold-fire notices you and tracks you, but does not engage.
+      this.state = this.holdFire ? ENEMY_STATE.SUSPICIOUS : ENEMY_STATE.COMBAT;
       this.lastSeenPos.copy(player.pos);
       this.reactionTimer = this.diff.react;
       this.shout(this.era === '1973' ? 'TARGET!' : 'CONTACT!');
@@ -296,7 +316,8 @@ export class Enemy {
           this.mesh.rotation.y = this.yaw;
         }
         this.searchTimer -= dt;
-        if (sees || this.awareness > 0.75) {
+        // Under hold-fire they keep watching; anything else escalates normally.
+        if (!this.holdFire && (sees || this.awareness > 0.75)) {
           this.alerted = true;
           this.state = ENEMY_STATE.COMBAT;
           this.reactionTimer = this.diff.react;
@@ -323,7 +344,7 @@ export class Enemy {
         } else {
           this.searchTimer -= dt;
         }
-        if (sees) {
+        if (sees && !this.holdFire) {
           this.alerted = true;
           this.state = ENEMY_STATE.COMBAT;
           this.reactionTimer = this.diff.react;

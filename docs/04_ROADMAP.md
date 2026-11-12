@@ -108,10 +108,15 @@ Exit criteria: cutscenes can be skipped, paused and subtitled without desync.
 
 ---
 
-## M8 — Chapters 02–03 **[ ]**
+## M8 — Chapters 02–03 **[~]** ← in progress
 
 - Chapter 02: Port Komdok — three insertion routes, night vision, rooftop defence
 - Chapter 03: Cairo archive hub — no combat until the final five minutes, intel-driven
+  - **Done in the browser slice:** hub geometry (`libCairo.js`), six scripted beats, document
+    collection, the Box 07 branching decision with a persisted flag, and the rooftop ambush
+    with dormant/hold-fire AI states. UE side: objective rows + mission asset spec.
+  - **Outstanding:** forensics minigame, interview dialogue wheel, suspicion meter, and the
+    Unreal implementation of the hub level itself.
 - Optional objectives and hidden intel wired to campaign flags
 
 ---

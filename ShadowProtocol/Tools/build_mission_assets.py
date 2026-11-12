@@ -65,6 +65,23 @@ MISSIONS = [
         "lighting": "1973_Night",
     },
     {
+        "id": "ch03_black_file",
+        "chapter": 3,
+        "title": "THE BLACK FILE",
+        "title_ar": "الملف الأسود",
+        "code": "DIR-7 / ARCHIVE FLOOR",
+        "era": "Modern",
+        "protagonist": "Nasser",
+        "synopsis": "The scan from Port Komdok ends in a torn edge. The other half is in "
+                    "Cairo, in a building that has been quietly losing documents since 1979.",
+        "loadout": ["pistol", "mp5sd"],
+        "night_vision": False,
+        "squad": [],
+        "difficulty": "Soldier",
+        "time_of_day": 9.3,
+        "lighting": "Modern_Morning",
+    },
+    {
         "id": "ch02_silent",
         "chapter": 2,
         "title": "THE SILENT MISSION",
@@ -204,6 +221,7 @@ def build_maps():
         "L_MainMenu": None,
         "L_Chapter01_Crossing": "1973_Afternoon",
         "L_Chapter02_Silent": "Modern_Night",
+        "L_Chapter03_Archive": "Modern_Morning",
     }
     for map_name, _preset in maps.items():
         path = MAP_PATH + "/" + map_name

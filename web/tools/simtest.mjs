@@ -16,6 +16,7 @@ installStubs();
 const { Game } = await import('../src/game/game.js');
 const { CHAPTER_01_MISSIONS, buildCrossingMission, buildDepotMission } = await import('../src/levels/chapter01.js');
 const { CHAPTER_02_MISSION, buildSilentMission } = await import('../src/levels/chapter02.js');
+const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('../src/levels/chapter03.js');
 const models = await import('../src/game/models.js');
 const weaponsMod = await import('../src/game/weapons.js');
 globalThis.__SP_WEAPONS__ = weaponsMod;
@@ -81,9 +82,11 @@ function makeGame() {
   g.registerMission(CHAPTER_01_MISSIONS[0], buildCrossingMission);
   g.registerMission(CHAPTER_01_MISSIONS[1], buildDepotMission);
   g.registerMission(CHAPTER_02_MISSION, buildSilentMission);
+  g.registerMission(CHAPTER_03_MISSION, buildArchiveMission);
   CHAPTER_01_MISSIONS[0].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (gg) => { gg.chapterIndex = 2; };
+  CHAPTER_03_MISSION.onStart = (gg) => { gg.chapterIndex = 3; };
   return g;
 }
 
@@ -544,6 +547,83 @@ check('Nineteen of twenty-one intelligence documents defined across docs', () =>
     void m;
   }
   return `slice missions: ${[...game.missions.keys()].length}`;
+});
+
+// ---------------------------------------------------------------- chapter 03
+check('Chapter 03 archive hub loads with correct geometry and a peaceful garrison', () => {
+  game.startMission('ch03_black_file');
+  if (game.mission.id !== 'ch03_black_file') throw new Error('wrong mission');
+  const boxes = game.world.collision.boxes.length;
+  const enemies = game.ai.enemies.length;
+  const triggers = game.world.triggers.length;
+  if (boxes < 250) throw new Error(`only ${boxes} colliders — hub geometry is thin`);
+  if (enemies < 12) throw new Error(`only ${enemies} hostiles placed`);
+  if (triggers < 5) throw new Error(`only ${triggers} scripted triggers`);
+  if (game.mission.objectives.length !== 6) throw new Error('expected 6 objectives');
+  return `${boxes} colliders · ${enemies} hostiles · ${triggers} triggers · ${game.mission.objectives.length} objectives`;
+});
+
+check('Chapter 03 hub is peaceful: holding-fire guards never engage', () => {
+  simulate(game, 3, { force: true });
+  const hostile = game.ai.enemies.filter((e) => e.alerted && !e.holdFire && e.faction !== 'ambush');
+  if (hostile.length) throw new Error(`${hostile.length} guards broke hold-fire in the hub`);
+  const dormant = game.ai.enemies.filter((e) => e.dormant).length;
+  if (dormant === 0) throw new Error('ambush cell is not dormant');
+  return `0 guards engaged · ${dormant} ambushers dormant`;
+});
+
+check('Chapter 03 scripted beats fire in order and award intel', () => {
+  const W = game.world, P = game.player.pos;
+  const step = (s) => simulate(game, s, { force: true });
+  const tp = (x, z, y = 1.2) => P.set(x, W.collision.surfaceAt(x, z, 3, 0.3) + y, z);
+  tp(0, 10); step(0.3);
+  if (!game.mission.objectives[0].done) throw new Error('Zidan beat did not fire');
+  tp(0, -22); step(0.3);
+  if (!game.mission.objectives[1].done) throw new Error('courtyard crossing did not fire');
+  tp(0, -46); step(0.3);
+  if (!game.mission.objectives[2].done) throw new Error('archivist beat did not fire');
+  tp(-9.8, -55); step(0.3);
+  if (!game.mission.objectives[3].done) throw new Error('ledger objective did not complete');
+  if (!game.mission.intelLog.find((i) => i.id === 'ledger_half_two')) throw new Error('ledger intel missing');
+  return 'Zidan → courtyard → archivist → ledger all fired';
+});
+
+check('Chapter 03 decision card opens, freezes the world and records the flag', () => {
+  const W = game.world, P = game.player.pos;
+  P.set(0, W.collision.surfaceAt(0, -50.5, 3, 0.3) + 1.2, -50.5);
+  simulate(game, 0.3, { force: true });
+  if (!game.choiceOpen) throw new Error('decision card did not open');
+  if (!game.hud.choice || game.hud.choice.options.length < 2) throw new Error('decision has too few options');
+  const x0 = P.x;
+  simulate(game, 0.5, { force: true });
+  if (Math.abs(P.x - x0) > 0.001) throw new Error('world did not freeze during the decision');
+  game.hud.commitChoice(1);
+  if (game.choiceOpen) throw new Error('card did not close');
+  if (game.save.progress.flags[CH03_FLAGS.WITHHELD_SCAN] !== true) throw new Error('flag not persisted');
+  return `2 options · froze world · flag "${CH03_FLAGS.WITHHELD_SCAN}" recorded`;
+});
+
+check('Chapter 03 rooftop ambush wakes the cell and completes the chapter', () => {
+  const W = game.world, P = game.player.pos;
+  const dormantBefore = game.ai.enemies.filter((e) => e.dormant).length;
+  P.set(-11.2, W.collision.surfaceAt(-11.2, -45.5, 8, 0.3) + 5.0, -45.5);
+  simulate(game, 0.4, { force: true });
+  const dormantAfter = game.ai.enemies.filter((e) => e.dormant).length;
+  if (dormantBefore === 0 || dormantAfter !== 0) throw new Error(`ambush did not spring (${dormantBefore} -> ${dormantAfter})`);
+  const hostileGuards = game.ai.enemies.filter((e) => e.holdFire && e.faction === 'directorate');
+  if (hostileGuards.length) throw new Error('holding-fire guards were never released');
+  if (!game.mission.complete) throw new Error('chapter did not complete');
+  return `${dormantBefore} → 0 dormant · chapter complete`;
+});
+
+check('Chapter 03 survives a long run without NaNs', () => {
+  simulate(game, 20, { force: true });
+  const p = game.player.pos;
+  if (Number.isNaN(p.x) || Number.isNaN(p.y) || Number.isNaN(p.z)) throw new Error('player position is NaN');
+  for (const e of game.ai.enemies) {
+    if (Number.isNaN(e.pos.x) || Number.isNaN(e.pos.z)) throw new Error('enemy position is NaN');
+  }
+  return '20 s of ambush combat, no NaN';
 });
 
 const passed = results.filter((r) => r.ok).length;
