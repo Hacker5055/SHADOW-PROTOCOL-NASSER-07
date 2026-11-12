@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SHADOW PROTOCOL: NASSER 07</title>
+  <meta name="description" content="A cinematic military FPS spanning two generations of Egyptian soldiers. Playable vertical slice: Chapter 01 The Crossing (1973) and Chapter 02 The Silent Mission (modern)." />
+  <meta name="theme-color" content="#0d0f10" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #06080a; }
+    body { font-family: "Bahnschrift", "DIN Alternate", "Roboto Condensed", system-ui, sans-serif; }
+    #app { position: fixed; inset: 0; }
+    canvas#view { display: block; width: 100%; height: 100%; outline: none; cursor: crosshair; }
+    #boot {
+      position: fixed; inset: 0; z-index: 200; background: #06080a; color: #c9bfa3;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+      transition: opacity .6s; letter-spacing: .3em; font-size: 11px;
+    }
+    #boot.done { opacity: 0; pointer-events: none; }
+    #boot .logo { font-size: 13px; letter-spacing: .5em; color: #e0741f; }
+    #boot .bar { width: 260px; height: 2px; background: rgba(201,191,163,.15); position: relative; overflow: hidden; }
+    #boot .bar i { position: absolute; inset: 0; width: 40%; background: #e0741f; animation: bootBar 1.4s ease-in-out infinite; }
+    @keyframes bootBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+    #boot .hint { font-size: 9px; letter-spacing: .24em; color: rgba(201,191,163,.4); margin-top: 10px; }
+    #error {
+      position: fixed; inset: 0; z-index: 300; background: #0a0c0d; color: #e8e2d0; display: none;
+      padding: 8vh 8vw; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.7; overflow: auto;
+    }
+    #error h1 { color: #e0741f; font-size: 16px; letter-spacing: .2em; }
+    #error pre { white-space: pre-wrap; color: #b9b2a0; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="view" tabindex="0"></canvas>
+  </div>
+
+  <div id="boot">
+    <div class="logo">SHADOW PROTOCOL</div>
+    <div>NASSER 07</div>
+    <div class="bar"><i></i></div>
+    <div class="hint">INITIALISING ENGINE</div>
+  </div>
+
+  <div id="error">
+    <h1>ENGINE FAILURE</h1>
+    <p>The renderer could not start. WebGL2 is required.</p>
+    <pre id="error-detail"></pre>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+Name,Id,Text,TextArabic,bOptional,bHidden,bHasMarker,MarkerX,MarkerY,MarkerZ,ChapterIndex,MissionId
+Ch01_1_Radio,ch01_reach_radio,"Reach the forward radio post","ابلغ نقطة اللاسلكي الأمامية",False,False,True,4200,0,120,1,ch01_crossing
+Ch01_2_Breach,ch01_breach_berm,"Clear the sand berm breach","أمن فتحة الساتر الترابي",False,False,True,6100,320,90,1,ch01_crossing
+Ch01_3_Strongpoint,ch01_take_strongpoint,"Take Bar Lev strongpoint 4","اقتحم نقطة بارليف رقم ٤",False,False,True,7800,900,80,1,ch01_crossing
+Ch01_4_Platoon,ch01_rescue_platoon,"Get the cut-off platoon out of the wire","أنقذ الفصيلة المحاصرة في الأسلاك",False,False,False,0,0,0,1,ch01_crossing
+Ch01_5_Depot,ch01_depot_raid,"Search the Qantara road depot","فتش مخزن طريق القنطرة",False,False,True,9200,1400,60,1,ch01_crossing
+Ch01_Opt_Docs,ch01_optional_docs,"Recover the field documents","استعد أوراق الميدان",True,False,False,0,0,0,1,ch01_crossing
+Ch02_1_SeaWall,ch02_sea_wall,"Get over the sea wall undetected","تسلل عبر حائط البحر",False,False,True,-1200,5400,40,2,ch02_silent
+Ch02_2_Cells,ch02_find_cells,"Locate the holding cells","حدد موقع الزنازين",False,False,True,300,5600,30,2,ch02_silent
+Ch02_3_Server,ch02_recover_server,"Recover the server rack (optional)","استعد خزانة الخوادم (اختياري)",True,False,False,0,0,0,2,ch02_silent
+Ch02_4_Roof,ch02_roof_extract,"Hold the roof until the helicopter lands","اصمد على السطح حتى هبوط الطائرة",False,False,True,760,6100,180,2,ch02_silent

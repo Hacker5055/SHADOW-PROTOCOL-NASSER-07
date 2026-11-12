@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.4",
+	"Category": "Games",
+	"Description": "SHADOW PROTOCOL: NASSER 07 - a cinematic military FPS spanning two generations of Egyptian soldiers.",
+	"Modules": [
+		{
+			"Name": "ShadowProtocol",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"CoreUObject",
+				"UMG",
+				"AIModule",
+				"GameplayTasks",
+				"NavigationSystem",
+				"Niagara"
+			]
+		}
+	],
+	"Plugins": [
+		{ "Name": "ModelingToolsEditorMode", "Enabled": true },
+		{ "Name": "Niagara", "Enabled": true },
+		{ "Name": "EnhancedInput", "Enabled": true },
+		{ "Name": "Metasound", "Enabled": true },
+		{ "Name": "ChaosCloth", "Enabled": true },
+		{ "Name": "GeometryScripting", "Enabled": true },
+		{ "Name": "LevelSequenceEditor", "Enabled": true },
+		{ "Name": "SequencerScripting", "Enabled": true },
+		{ "Name": "MovieRenderPipeline", "Enabled": true },
+		{ "Name": "DLSS", "Enabled": false },
+		{ "Name": "FSR3", "Enabled": false }
+	],
+	"TargetPlatforms": [ "Windows" ]
+}

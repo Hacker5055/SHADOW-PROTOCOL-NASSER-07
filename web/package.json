@@ -1,0 +1,20 @@
+{
+  "name": "shadow-protocol-nasser-07",
+  "version": "1.0.0",
+  "description": "SHADOW PROTOCOL: NASSER 07 - playable vertical slice (Chapter 01: The Crossing, Chapter 02: The Silent Mission)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "keywords": ["fps", "threejs", "game"],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

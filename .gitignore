@@ -1,0 +1,19 @@
+# Dependencies / build output
+node_modules/
+dist/
+.DS_Store
+
+# Unreal generated
+ShadowProtocol/Binaries/
+ShadowProtocol/Build/
+ShadowProtocol/DerivedDataCache/
+ShadowProtocol/Intermediate/
+ShadowProtocol/Saved/
+ShadowProtocol/.vs/
+ShadowProtocol/*.sln
+ShadowProtocol/*.VC.db
+ShadowProtocol/Content/StarterContent/
+
+# Local tooling
+__pycache__/
+*.pyc
