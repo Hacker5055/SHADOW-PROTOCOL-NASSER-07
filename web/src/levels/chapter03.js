@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import { ENEMY_STATE } from '../game/ai.js';
+import { buildForensicCase, beginCase, summarise, retryCase, FORENSIC_STATE } from '../game/forensics.js';
 import { MAT } from '../engine/materials.js';
 import { PALETTE } from '../game/models.js';
 import {
@@ -190,6 +191,13 @@ export function buildArchiveMission(game, world) {
       body: 'Fourteen names, and a fifteenth written in a different hand: T. ABDEL-HAKIM. The margin note reads "not to be informed".'
     });
     game.hud.feed('INTELLIGENCE — ledger, second half recovered', 'intel');
+  }, true);
+
+  // 3b. Forensics table — prove the file was edited (Chapter 03 design beat).
+  const forensicsPos = { x: archive.x + 6.5, y: 1, z: archive.z - 2 };
+  world.addTrigger('ch03_forensics', forensicsPos, 3.4, () => {
+    if (state.forensicsDone) return;
+    openForensicsDesk(game, mission, state);
   }, true);
 
   // 4. The decision point
@@ -430,6 +438,17 @@ function buildArchiveProps(world, archive) {
   // The decision table centre of the archive floor.
   addReadingDesk(world, archive.x, archive.z + 1.5, 0);
 
+  // The UV analysis bench.
+  addReadingDesk(world, archive.x + 6.5, archive.z - 2, 0);
+  world.addBox(archive.x + 6.5, 1.02, archive.z - 2, 0.34, 0.12, 0.22, MAT.metal(0x4a4f52),
+    { solid: false, blockVision: false });
+  const uvLamp = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.09, 0.3, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a3a, emissive: 0x6f5cff, emissiveIntensity: 1.4 })
+  );
+  uvLamp.position.set(archive.x + 6.5, 1.22, archive.z - 2);
+  world.addObject(uvLamp, { solid: false });
+
   // Documents scattered — read as "someone was here before you"
   for (let i = 0; i < 14; i++) {
     world.addBox(
@@ -457,6 +476,53 @@ function openStacksAccess(world, archive) {
     shutter.userData.opening = true;
   }, 2600);
   if (box) box.maxY = 2.8;
+}
+
+function openForensicsDesk(game, mission, state) {
+  // Deterministic per playthrough seed is not needed here: the case is real
+  // either way, and a fresh one each run keeps the beat replayable.
+  let seed = 0;
+  const rng = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  const caseData = beginCase(buildForensicCase(rng, { fields: 7, conflicts: 3 }));
+
+  game.hud.say({
+    speaker: 'ARCHIVIST',
+    en: 'The lamp picks up the ink underneath. Anything that does not match the page — flag it.',
+    ar: 'المصباح يكشف الحبر الذي تحته. أي شيء لا يطابق الصفحة — علّمه.',
+    radio: false
+  });
+
+  game.hud.openForensics(caseData, {
+    onClose: (closed) => {
+      const summary = summarise(closed);
+      if (summary.proven) {
+        state.forensicsDone = true;
+        state.forensicsProven = true;
+        mission.addIntel({
+          id: 'box07_reclassified',
+          title: 'Box 07 — reclassification proof',
+          era: 'modern',
+          body: `${summary.findings.length} fields overwritten. ` +
+            summary.findings.map((f) => `${f.label}: ${f.shown} over ${f.underneath}`).join(' · ')
+        });
+        game.hud.say({
+          speaker: 'ADEL "MOUSE" FARHAN',
+          en: `That is a director's signature under the archivist's hand. Someone edited this file while it was still live.`,
+          ar: 'هذا توقيع مدير تحت خط يد أمين الأرشيف. أحدهم عدّل هذا الملف وهو ما زال نشطًا.',
+          radio: true
+        });
+        mission.completeObjective(2, { notice: 'Proved the AMETHYST file was edited' });
+      } else {
+        // Never a dead end: the case can be reopened and retried.
+        state.forensicsDone = false;
+        state.forensicsProven = false;
+        game.hud.feed('ANALYSIS INCONCLUSIVE — the lamp is still warm, try again', 'alert');
+      }
+    }
+  });
 }
 
 function presentDecision(game, world, state, mission) {

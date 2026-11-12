@@ -65,21 +65,23 @@ chapter is about reading a building.
 | 3.1 | **OPERATIONS FLOOR** | Reports to Zidan. Walk-and-talk; the briefing is delivered as dialogue, not a cutscene. Introduces the Box 07 scan and Zidan's refusal to let it leave the building. |
 | 3.2 | **THE COURTYARD** | Crosses the compound: colonnade, dry fountain, dead palm, street noise beyond the wall. Pure atmosphere and orientation. |
 | 3.3 | **THE ARCHIVIST** | Asks for the AMETHYST clearance file. The archivist opens the stacks — a shutter physically rises. |
-| 3.4 | **THE STACKS** *(optional)* | Searches the archive floor and mezzanine for the ledger's second half. 300+ readable spines; the campaign's intelligence documents can be read here. |
+| 3.4 | **THE STACKS** *(optional)* | Searches the archive floor and mezzanine for the ledger's second half. The campaign's intelligence documents can be read here. |
+| 3.4b | **THE LAMP** *(optional)* | The forensics bench: a UV pass over the reclassification record. Seven fields, three overwritten; flag the wrong ink and the read is compromised, so it can be retried. Proving the edit yields a new intelligence document. |
 | 3.5 | **THE DECISION** | Chooses what to do with the scan: **give it to Adel** (`TRUST_ADEL`) or **keep it** (`WITHHELD_SCAN`). Real branching — the card freezes the world and the flag persists into Chapter 07. |
 | 3.6 | **ROOFTOP AMBUSH** | The only combat. Eight ambushers plus two marksmen wake on the roof; the Directorate guards drop their hold-fire and turn hostile. |
 
 **Systems exercised:** hub navigation, scripted trigger beats, document collection, branching
 dialogue choice with persistent flags, dormant/hold-fire AI states, rooftop defence.
 
-**Implemented:** `web/src/levels/chapter03.js` (+ `libCairo.js` prop kit), Unreal objective rows
+**Implemented:** `web/src/levels/chapter03.js` (+ `libCairo.js` prop kit), the forensics minigame
+in `web/src/game/forensics.js` with its own panel in `web/src/ui/hud.js`, Unreal objective rows
 in `ShadowProtocol/Content/Data/DT_Objectives.csv`, mission asset spec in
 `ShadowProtocol/Tools/build_mission_assets.py`. Covered by 6 automated checks in
 `web/tools/simtest.mjs`.
 
-**Still to author:** the forensics UV/ink minigame, the 300+ individual file-spine meshes
-(currently a shelf system with a document reader), the dialogue-wheel interview angles, and
-the faction suspicion meter. Those are design commitments, not shipped features.
+**Still to author:** the 300+ individually modelled file spines (shelf systems with the document
+reader stand in), the dialogue-wheel interview angles that unlock different documents, and the
+faction suspicion meter. Those are design commitments, not shipped features.
 
 ---
 

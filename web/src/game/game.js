@@ -63,6 +63,15 @@ export class Game {
     this.onMissionComplete = this.onMissionComplete.bind(this);
 
     window.addEventListener('keydown', (e) => {
+      // The forensics view is modal: F or Escape closes the file.
+      if (this.hud?.forensics) {
+        if (e.code === 'KeyF' || e.code === 'Escape') {
+          e.preventDefault();
+          this.hud.closeForensics();
+        }
+        return;
+      }
+
       // A branching decision takes the keyboard while it is open.
       if (this.choiceOpen) {
         if (e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); this.hud.moveChoice(-1); return; }

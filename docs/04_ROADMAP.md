@@ -115,8 +115,10 @@ Exit criteria: cutscenes can be skipped, paused and subtitled without desync.
   - **Done in the browser slice:** hub geometry (`libCairo.js`), six scripted beats, document
     collection, the Box 07 branching decision with a persisted flag, and the rooftop ambush
     with dormant/hold-fire AI states. UE side: objective rows + mission asset spec.
-  - **Outstanding:** forensics minigame, interview dialogue wheel, suspicion meter, and the
-    Unreal implementation of the hub level itself.
+  - **Also done:** the forensics UV/ink minigame (`web/src/game/forensics.js`) — real rules,
+    real failure state, retryable, and covered by three automated checks.
+  - **Outstanding:** interview dialogue wheel, suspicion meter, and the Unreal implementation
+    of the hub level itself.
 - Optional objectives and hidden intel wired to campaign flags
 
 ---

@@ -21,6 +21,8 @@ const models = await import('../src/game/models.js');
 const weaponsMod = await import('../src/game/weapons.js');
 globalThis.__SP_WEAPONS__ = weaponsMod;
 const intelMod = await import('../src/game/intel.js');
+const forensicsMod = await import('../src/game/forensics.js');
+globalThis.__SP_FORENSICS__ = forensicsMod;
 globalThis.__SP_DOCS__ = intelMod.INTELLIGENCE;
 globalThis.window.__SP_MODELS__ = models;
 globalThis.window.__SP_HELI__ = models;
@@ -624,6 +626,74 @@ check('Chapter 03 survives a long run without NaNs', () => {
     if (Number.isNaN(e.pos.x) || Number.isNaN(e.pos.z)) throw new Error('enemy position is NaN');
   }
   return '20 s of ambush combat, no NaN';
+});
+
+// ---------------------------------------------------------------- forensics
+check('Forensics case builds with the right conflict count and hides the edit', () => {
+  const F = globalThis.__SP_FORENSICS__;
+  let seed = 7;
+  const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const c = F.buildForensicCase(rng, { fields: 7, conflicts: 3 });
+  if (c.fields.length !== 7) throw new Error(`expected 7 fields, got ${c.fields.length}`);
+  const doctored = c.fields.filter((f) => f.doctored);
+  if (doctored.length !== 3) throw new Error(`expected 3 doctored fields, got ${doctored.length}`);
+  for (const f of doctored) {
+    if (f.underwriting === f.value) throw new Error(`${f.key}: underwriting matches the visible value`);
+  }
+  for (const f of c.fields.filter((x) => !x.doctored)) {
+    if (f.underwriting !== f.value) throw new Error(`${f.key}: clean field has underwriting`);
+  }
+  return `7 fields · 3 doctored · underwriting hidden`;
+});
+
+check('Forensics: correct flags prove the edit, false flags compromise and can be retried', () => {
+  const F = globalThis.__SP_FORENSICS__;
+  let seed = 11;
+  const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const c = F.beginCase(F.buildForensicCase(rng, { fields: 6, conflicts: 2 }));
+
+  // A wrong flag is recorded but does not close the case.
+  const clean = c.fields.find((f) => !f.doctored);
+  const wrong = F.inspectField(c, clean.key);
+  if (wrong.reason !== 'clean-ink') throw new Error(`expected clean-ink, got ${wrong.reason}`);
+  if (c.state !== F.FORENSIC_STATE.ACTIVE) throw new Error('one wrong flag should not end the case');
+
+  // Flag the real conflicts.
+  const docs = c.fields.filter((f) => f.doctored);
+  for (const f of docs) F.inspectField(c, f.key);
+  if (c.state !== F.FORENSIC_STATE.PROVEN) throw new Error('case not proven after all conflicts');
+  const summary = F.summarise(c);
+  if (summary.findings.length !== 2) throw new Error('summary lost findings');
+
+  // Now drive a fresh case to compromise and confirm recovery.
+  const c2 = F.beginCase(F.buildForensicCase(rng, { fields: 6, conflicts: 2 }));
+  const cleankeys = c2.fields.filter((f) => !f.doctored).map((f) => f.key);
+  for (const k of cleankeys.slice(0, c2.falsePositiveLimit)) F.inspectField(c2, k);
+  if (c2.state !== F.FORENSIC_STATE.COMPROMISED) throw new Error('case should be compromised');
+  F.retryCase(c2);
+  if (c2.state !== F.FORENSIC_STATE.ACTIVE || c2.falsePositives !== 0) throw new Error('retry did not reset');
+  return `proven with 2 findings · compromised at ${c2.falsePositiveLimit} false flags · retry resets`;
+});
+
+check('Chapter 03 forensics desk opens a real, solvable case and awards intel', () => {
+  game.startMission('ch03_black_file');
+  game.state = 'playing';
+  const W = game.world, P = game.player.pos;
+  const step = (s) => simulate(game, s, { force: true });
+  const tp = (x, z) => { const y = W.collision.surfaceAt(x, z, 3, 0.3) + 1.2; P.set(x, y, z); };
+  tp(0, -46); step(0.3);
+  tp(6.5, -54); step(0.3);
+  if (!game.hud.forensics) throw new Error('forensics desk did not open');
+  const caseData = game.hud.forensics.caseData;
+  const before = game.mission.intelLog.length;
+  for (const f of caseData.fields.filter((x) => x.doctored)) game.hud.inspectForensicField(f.key);
+  if (caseData.state !== 'proven') throw new Error('case not proven');
+  game.hud.closeForensics();
+  step(0.1);
+  if (game.mission.intelLog.length <= before) throw new Error('forensics intel was not recorded');
+  if (!game.mission.intelLog.find((i) => i.id === 'box07_reclassified')) throw new Error('missing proof document');
+  if (game.choiceOpen) throw new Error('world stayed frozen after closing the file');
+  return `${caseData.conflicts} conflicts proven · intel recorded · world resumed`;
 });
 
 const passed = results.filter((r) => r.ok).length;

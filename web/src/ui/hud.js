@@ -3,6 +3,7 @@
  * Premium military interface: graphite black, muted olive, tactical orange.
  * DOM-based so it stays crisp at any resolution and respects UI scaling.
  */
+import { inspectField, summarise } from '../game/forensics.js';
 
 const css = `
 :root{
@@ -184,7 +185,39 @@ const css = `
 #choice .opt:hover,#choice .opt.sel{border-color:var(--orange);background:rgba(214,110,42,.1);color:#fff}
 #choice .opt .n{color:var(--orange);margin-right:10px;font-variant-numeric:tabular-nums}
 #choice .opt .ar{display:block;direction:rtl;font-size:13px;opacity:.62;margin-top:4px}
+
+/* ---------- forensics ---------- */
+#forensics{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(6,8,7,.94);z-index:62;pointer-events:none}
+#forensics.show{display:flex;pointer-events:auto}
+#forensics .doc{width:min(880px,92vw);max-height:88vh;overflow:auto;background:
+  linear-gradient(170deg,#cfc6ad,#b9b096);color:#20241c;padding:30px 34px;
+  box-shadow:0 50px 120px rgba(0,0,0,.8),inset 0 0 120px rgba(120,100,60,.35);
+  border:1px solid rgba(0,0,0,.35);font-variant-numeric:tabular-nums}
+#forensics .doc h2{margin:0;font-size:17px;letter-spacing:.16em}
+#forensics .doc .ar{direction:rtl;font-size:13px;opacity:.72;margin-top:4px}
+#forensics .ref{font-size:10px;letter-spacing:.28em;opacity:.6;margin:10px 0 18px}
+#forensics .lamp{height:2px;background:linear-gradient(90deg,transparent,#6f5cff,transparent);
+  opacity:.5;margin-bottom:18px}
+#forensics table{width:100%;border-collapse:collapse;font-size:12px}
+#forensics td{padding:9px 10px;border-bottom:1px solid rgba(32,36,28,.22);vertical-align:top}
+#forensics td.k{width:32%;font-size:10px;letter-spacing:.18em;opacity:.62}
+#forensics td.v{font-family:ui-monospace,monospace}
+#forensics tr.row{cursor:pointer;transition:background .12s}
+#forensics tr.row:hover{background:rgba(214,110,42,.16)}
+#forensics tr.confirmed{background:rgba(74,120,52,.24)}
+#forensics tr.uv{background:rgba(111,92,255,.16)}
+#forensics tr.confirmed td.v::after{content:'  ← overwritten';color:#2f5a1e;font-size:10px;letter-spacing:.1em}
+#forensics .foot{display:flex;justify-content:space-between;align-items:center;margin-top:20px;
+  font-size:11px;letter-spacing:.16em}
+#forensics .btn{border:1px solid rgba(32,36,28,.5);padding:9px 16px;cursor:pointer;background:transparent;
+  font:inherit;letter-spacing:.16em;font-size:11px}
+#forensics .btn:hover{background:rgba(32,36,28,.12)}
+#forensics .status{font-size:11px;letter-spacing:.14em}
+#forensics .status.bad{color:#7a2318}
+#forensics .status.good{color:#2f5a1e}
 `
+
 
 export class HUD {
   constructor(game) {
@@ -248,6 +281,20 @@ export class HUD {
       <div id="interact"><b>[F]</b> <span id="interact-label">INTERACT</span></div>
       <div id="subtitles"></div>
 
+      <div id="forensics">
+        <div class="doc">
+          <h2 id="frs-title"></h2>
+          <div class="ar" id="frs-title-ar"></div>
+          <div class="ref" id="frs-ref"></div>
+          <div class="lamp"></div>
+          <table><tbody id="frs-rows"></tbody></table>
+          <div class="foot">
+            <div class="status" id="frs-status"></div>
+            <div><button class="btn" id="frs-close">CLOSE [F]</button></div>
+          </div>
+        </div>
+      </div>
+
       <div id="choice">
         <div class="card">
           <div class="eyebrow">DECISION</div>
@@ -282,7 +329,8 @@ export class HUD {
       'fire-mode', 'reload-bar', 'reload-fill', 'grenade-count', 'crosshair', 'hitmarker', 'headshot-tag', 'feed',
       'prompt', 'interact', 'interact-label', 'subtitles', 'objectives-overlay', 'ovl-list', 'ovl-title', 'ovl-code',
       'ovl-intel', 'chip-nvg', 'chip-supp', 'chip-stealth', 'dmg-vignette', 'chapter-card', 'cc-era', 'cc-num',
-      'cc-title', 'cc-sub', 'choice', 'choice-prompt', 'choice-prompt-ar', 'choice-options']) {
+      'cc-title', 'cc-sub', 'choice', 'choice-prompt', 'choice-prompt-ar', 'choice-options',
+      'forensics', 'frs-title', 'frs-title-ar', 'frs-ref', 'frs-rows', 'frs-status', 'frs-close']) {
       this.el[id] = this.root.querySelector(`#${id}`);
     }
     this._buildCompass();
@@ -607,6 +655,76 @@ export class HUD {
       card.style.opacity = '0';
       setTimeout(() => card.classList.remove('show'), 900);
     }, duration);
+  }
+
+  /**
+   * Open the document forensics view for a case built by game/forensics.js.
+   * Real interaction: clicking a row runs inspectField(); the case closes only
+   * when the edit is proven or the operator loses confidence.
+   * @param {object} caseData
+   * @param {{onClose?:(result:object)=>void}} opts
+   */
+  openForensics(caseData, opts = {}) {
+    if (!caseData) return;
+    this.forensics = { caseData, onClose: opts.onClose || null };
+    this.el['frs-title'].textContent = caseData.title;
+    this.el['frs-title-ar'].textContent = caseData.titleAr;
+    this.el['frs-ref'].textContent = caseData.reference;
+    this._renderForensics();
+    this.el['forensics'].classList.add('show');
+    if (this.game) this.game.choiceOpen = true;   // freeze the world, as with choices
+    this.game?.audio?.uiClick?.();
+  }
+
+  _renderForensics() {
+    const { caseData } = this.forensics;
+    this.el['frs-rows'].innerHTML = caseData.fields.map((f) => `
+      <tr class="row ${f.confirmed ? 'confirmed' : ''} ${f.flagged && !f.confirmed ? 'uv' : ''}" data-field="${f.key}">
+        <td class="k">${f.label}</td>
+        <td class="v">${f.confirmed ? f.underwriting : f.value}</td>
+      </tr>`).join('');
+
+    for (const row of this.el['frs-rows'].querySelectorAll('.row')) {
+      row.addEventListener('click', () => this.inspectForensicField(row.dataset.field));
+    }
+
+    const left = caseData.conflicts - caseData.found;
+    const bad = caseData.falsePositives;
+    const status = this.el['frs-status'];
+    if (caseData.state === 'proven') {
+      status.className = 'status good';
+      status.textContent = `EDIT PROVEN — ${caseData.found} / ${caseData.conflicts} OVERWRITTEN FIELDS`;
+    } else if (caseData.state === 'compromised') {
+      status.className = 'status bad';
+      status.textContent = `OPERATOR LOST CONFIDENCE — ${bad} FALSE FLAGS. RETRY AVAILABLE.`;
+    } else {
+      status.className = 'status';
+      status.textContent = `FINDINGS ${caseData.found} / ${caseData.conflicts} · FALSE FLAGS ${bad} / ${caseData.falsePositiveLimit} · ${left} LEFT`;
+    }
+  }
+
+  inspectForensicField(key) {
+    if (!this.forensics) return null;
+    const { caseData } = this.forensics;
+    const result = inspectField(caseData, key);
+    this._renderForensics();
+    if (result.reason === 'finding' || result.reason === 'proven') this.game?.audio?.uiConfirm?.();
+    else if (result.reason === 'clean-ink' || result.reason === 'compromised') this.game?.audio?.uiBack?.();
+    if (caseData.state === 'proven' || caseData.state === 'compromised') {
+      const summary = summarise(caseData);
+      this.feed(summary.headline, caseData.state === 'proven' ? 'intel' : 'alert');
+    }
+    return result;
+  }
+
+  closeForensics() {
+    if (!this.forensics) return null;
+    const { caseData, onClose } = this.forensics;
+    this.el['forensics'].classList.remove('show');
+    if (this.game) this.game.choiceOpen = false;
+    this.forensics = null;
+    if (onClose) onClose(caseData);
+    return caseData;
   }
 
   /**
