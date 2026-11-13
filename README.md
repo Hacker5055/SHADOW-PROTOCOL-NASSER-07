@@ -15,7 +15,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | Path | What it is | Status |
 |---|---|---|
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
-| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission* and 03 *The Black File* (Cairo hub + rooftop ambush), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 63 automated checks passing |
+| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush) and 04 *City of Shadows* (Vienna streets), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 70 automated checks passing |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
 | `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 
@@ -127,9 +127,16 @@ user-settings defaults. See `docs/03_TECHNICAL_ARCHITECTURE.md` §5.
 Three endings (`CLEAN HANDS`, `THE LEDGER`, `INHERITANCE`) are decided by four tracked
 campaign flags, plus a secret epilogue. See `docs/02_CHAPTERS.md`.
 
-Chapters 01–03 are playable in the browser slice. Chapter 03 is the hub chapter: a
+Chapters 01–04 are playable in the browser slice. Chapter 03 is the hub chapter: a
 Cairo intelligence directorate you walk through, read, and then have to fight your way
 out of the top floor — with one branching decision that persists into the finale.
+
+Chapter 04, *City of Shadows*, is the semi-open one: a ~340 x 260 m slice of Vienna's
+canal district with a street grid, a canal embankment, a market hall, a metro entrance
+and the Hotel Adler. Three couriers have to be photographed **in shot** — the check is a
+real view-cone plus line-of-sight test, and a hostile seeing you at that moment voids the
+frame. Three optional objectives (CCTV, a detained journalist, a phone tap) each move a
+flag. KONSUL's ending fork writes `KONSUL_ALIVE` or `KONSUL_DEAD` for Chapter 06.
 
 ---
 
@@ -138,8 +145,9 @@ out of the top floor — with one branching decision that persists into the fina
 `docs/04_ROADMAP.md` tracks the ten milestones from the brief against what is actually
 implemented. Nothing is marked complete unless it is playable or compilable.
 
-- **M1 — vertical slice:** done and verified (`web/`, 63 automated checks passing across
-  Chapters 01–03, plus measured first-person animation).
+- **M1 — vertical slice:** done and verified (`web/`, 70 automated checks passing across
+  Chapters 01–04, including a flood-fill proof that the chapter 04 streets are
+  connected, not merely drawn).
 - **M2 — UE5 project skeleton:** done at source level; **not compiled**.
 - **M3 — Chapter 01 blockout:** next; the procedural graybox range is the starting point.
 
@@ -157,6 +165,8 @@ Listed so nobody has to discover it the hard way:
 3. No audio assets: VO, weapons, ambience and music are specified in
    `docs/05_AUDIO_AND_VO.md` but not produced.
 4. No cinematics or Level Sequences.
-5. Chapters 04–07 exist as design (docs + data schema), not as playable content.
+5. Chapter 04 is playable; **Chapters 05–07 exist as design** (docs + data schema), not
+   as playable content. Chapter 04's vehicle pursuit and rooftop routes from the design
+   are not built — the five infiltration approaches are street-level only.
 6. Chapter 03's interview dialogue wheel and faction suspicion meter are design only. The hub,
    the branching decision, the forensics minigame and the rooftop ambush are all real.

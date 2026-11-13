@@ -54,9 +54,12 @@ export const CHAPTER_03_MISSION = {
  * The chapter's decision, stored on the game object so the ending resolver can
  * read it. This mirrors the four campaign flags the UE build uses.
  */
+// These must match the keys in save.js DEFAULT_PROGRESS.flags: the ending
+// resolver reads f.TRUST_ADEL, and an earlier lowercase 'trust_adel' here made
+// the CLEAN HANDS ending unreachable no matter what the player chose.
 export const CH03_FLAGS = {
-  TRUST_ADEL: 'trust_adel',
-  WITHHELD_SCAN: 'withheld_scan'
+  TRUST_ADEL: 'TRUST_ADEL',
+  WITHHELD_SCAN: 'WITHHELD_SCAN'
 };
 
 export function buildArchiveMission(game, world) {
@@ -562,8 +565,6 @@ function presentDecision(game, world, state, mission) {
       options
     });
   } else {
-    // Headless path (automated tests): take the first option so the chapter can
-    // always advance; the browser build always has the HUD.
     options[0].apply();
   }
 

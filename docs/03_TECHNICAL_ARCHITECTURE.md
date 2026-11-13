@@ -380,6 +380,49 @@ Measured: right hand 0.92 m at `aim=0` → 1.31 m at `aim=1` (chest is 1.28 m).
 
 ---
 
+## 12.3 Chapter 04 — the semi-open level (browser slice)
+
+`levels/chapter04.js` + `levels/libVienna.js`. A ~340 x 260 m slice of Vienna's canal
+district: a street grid, a sunken canal with two bridges, a market hall, a metro
+entrance, a tram loop, and the Hotel Adler.
+
+**Street layout is a generated grid, not hand-placed blocks.** Rows of buildings are
+split by a 26 m central avenue and 22 m cross streets. This is not cosmetic: the squad's
+navigation is `steer()` (`ai.js`), a nineteen-heading local sampler with no path
+planning. Given 6–8 m gaps it wedges against a building and stands still forever. The
+first version of this level left such gaps and three squad members never left the spawn.
+
+**Two separate bugs that produced the same symptom — an unreachable hotel:**
+
+1. **Hairline colliders.** Canal railings were registered as solid 8 cm boxes. On screen
+   they were a railing; as collision they were a wall across the district. Railings are
+   now `solid: false` — the posts imply the barrier, and a player is meant to be able to
+   step over the kerb.
+2. **A room on the cross street.** The journalist's storeroom was placed at x = -26,
+   straddling the western corridor and sealing the route. Moved into the block footprint.
+
+The regression test is a **flood-fill** over a 2 m walkable grid proving the hotel is
+reachable from four approaches. Comparing screenshots would not have caught either bug;
+both levels rendered correctly.
+
+**Surveillance (beat 4.2)** is real detection, not a script:
+`inShot(game, cam, target)` requires the courier inside a ~57° half-angle of the camera
+axis, within 26 m, with `lineOfSight` unobstructed. A frame is voided if
+`anyHostileSees(game)` is true — being spotted while shooting photographs is the
+designed failure state. There is a 0.6 s shutter cooldown between frames.
+
+**Flags.** Chapter 04 writes `KONSUL_ALIVE` / `KONSUL_DEAD` plus three optional-objective
+flags. These are the canonical uppercase keys in `save.js`; the ending resolver reads
+them by name, so a lowercase variant is silently invisible.
+
+### Known limitations in this chapter
+
+- No vehicle pursuit and no rooftop route. The design calls for both; the five
+  approaches that exist are street-level.
+- Couriers are ordinary AI actors with a `flee` flag on being made; they do not path to
+  an exit, they just run.
+- No save checkpoint inside the mission yet — checkpoints are chapter-granular here.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -393,6 +436,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/ai.js` — perception, states, squad steering, `steer()` nav sampler | `ASPAIController`, `ASPSquadMember` | UE uses navmesh + `UPawnMovementComponent`; the slice's `steer()` has no UE analogue because the engine provides one |
 | `game/mission.js` — objectives, hooks, checkpoints | `ASPMissionManager`, `USPMissionData` | UE moves objective definitions into data assets |
 | `game/forensics.js` — UV ink analysis minigame (domain logic, headlessly tested) | none yet | UE: implement as a UMG widget over the same rule set; no C++ counterpart written |
+| `levels/chapter04.js` + `libVienna.js` — semi-open Vienna streets, view-cone surveillance | none yet | UE: authored `L_Chapter04_Vienna`, navmesh instead of `steer()`, and the courier photography as a tagged-camera volume check |
 | `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
 | `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |

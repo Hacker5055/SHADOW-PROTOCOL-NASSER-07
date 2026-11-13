@@ -24,6 +24,7 @@ const { Game } = await import('../src/game/game.js');
 const { CHAPTER_01_MISSIONS, buildCrossingMission, buildDepotMission } = await import('../src/levels/chapter01.js');
 const { CHAPTER_02_MISSION, buildSilentMission } = await import('../src/levels/chapter02.js');
 const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('../src/levels/chapter03.js');
+const { CHAPTER_04_MISSION, buildViennaMission, CH04_FLAGS, CH04_LAYOUT, inShot } = await import('../src/levels/chapter04.js');
 const models = await import('../src/game/models.js');
 const THREE = await import('three');
 const weaponsMod = await import('../src/game/weapons.js');
@@ -93,10 +94,12 @@ function makeGame() {
   g.registerMission(CHAPTER_01_MISSIONS[1], buildDepotMission);
   g.registerMission(CHAPTER_02_MISSION, buildSilentMission);
   g.registerMission(CHAPTER_03_MISSION, buildArchiveMission);
+  g.registerMission(CHAPTER_04_MISSION, buildViennaMission);
   CHAPTER_01_MISSIONS[0].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (gg) => { gg.chapterIndex = 2; };
   CHAPTER_03_MISSION.onStart = (gg) => { gg.chapterIndex = 3; };
+  CHAPTER_04_MISSION.onStart = (gg) => { gg.chapterIndex = 4; };
   return g;
 }
 
@@ -634,6 +637,200 @@ check('Chapter 03 survives a long run without NaNs', () => {
     if (Number.isNaN(e.pos.x) || Number.isNaN(e.pos.z)) throw new Error('enemy position is NaN');
   }
   return '20 s of ambush combat, no NaN';
+});
+
+check('Chapter 04 City of Shadows loads a full streetscape', () => {
+  game.startMission('ch04_city_of_shadows');
+  if (game.state !== 'playing') throw new Error(`state=${game.state}`);
+  const enemies = game.ai.enemies.length;
+  const squad = game.ai.squad.length;
+  if (enemies < 12) throw new Error(`only ${enemies} enemies on a semi-open mission`);
+  if (squad !== 3) throw new Error(`squad=${squad}, expected the campaign trio`);
+  if (game.world.collision.boxes.length < 80) throw new Error('streetscape has too little collision');
+  // The three couriers and four cameras are the chapter's spine; if either set
+  // is missing the mission cannot be completed as designed.
+  const ctx = game.levelCtx;
+  if (!ctx || ctx.couriers.length !== CH04_LAYOUT.courierCount) throw new Error('couriers not spawned');
+  if (ctx.cameras.length !== CH04_LAYOUT.cctvCount) throw new Error('cameras not spawned');
+  return `${enemies} enemies · ${squad} squad · ${game.world.collision.boxes.length} colliders · ${ctx.couriers.length} couriers · ${ctx.cameras.length} cameras`;
+});
+
+check('Chapter 04 courier photography needs a real sightline, not proximity', () => {
+  const ctx = game.levelCtx;
+  // The player's camera is viewCam; game.player.camera does not exist, and
+  // using it silently leaves the camera at the origin so every shot passes.
+  const cam = game.player.viewCam;
+  const courier = ctx.couriers[0];
+  const cp = { x: courier.pos.x, y: courier.pos.y + 1.1, z: courier.pos.z };
+
+  // Point the camera by looking at a target one metre along the required
+  // heading, and re-read the world matrix each time: lookAt on a camera that
+  // shares a parent with the player does not update on its own.
+  const aim = (pos, dir) => {
+    cam.position.set(pos.x, pos.y, pos.z);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(pos.x + dir.x, pos.y + dir.y, pos.z + dir.z);
+    cam.updateMatrixWorld(true);
+  };
+  const at = { x: cp.x, y: cp.y, z: cp.z + 6 };
+
+  aim(at, { x: 0, y: 0, z: -1 });
+  if (!inShot(game, cam, courier)) throw new Error('courier not recognised with a clear shot');
+
+  // Looking away must fail even at the same distance.
+  aim(at, { x: 0, y: 0, z: 1 });
+  if (inShot(game, cam, courier)) throw new Error('courier photographed while facing away');
+
+  // Too far must fail even while pointed at him.
+  aim({ x: cp.x, y: cp.y, z: cp.z + 60 }, { x: 0, y: 0, z: -1 });
+  if (inShot(game, cam, courier)) throw new Error('courier photographed from 60 m');
+  return 'clear shot yes · facing away no · 60 m no';
+});
+
+check('Chapter 04 optional objectives set the flags the ending reads', () => {
+  const W = game.world, P = game.player.pos;
+  const tp = (x, z) => P.set(x, W.collision.surfaceAt(x, z, 3, 0.3) + 1.2, z);
+  // CCTV junction box behind the market hall.
+  tp(22, 22); simulate(game, 0.3, { force: true });
+  if (game.save.progress.flags[CH04_FLAGS.CCTV_DOWN] !== true) throw new Error('CCTV flag not set');
+  const cams = game.levelCtx.cameras.filter((c) => c.down).length;
+  if (cams !== CH04_LAYOUT.cctvCount) throw new Error(`only ${cams} cameras went down`);
+  // Detained journalist.
+  tp(-30.6, 21); simulate(game, 0.3, { force: true });
+  if (game.save.progress.flags[CH04_FLAGS.JOURNALIST_FREED] !== true) throw new Error('journalist flag not set');
+  // Phone tap.
+  tp(-28, 1); simulate(game, 0.3, { force: true });
+  if (game.save.progress.flags[CH04_FLAGS.PHONE_TAPPED] !== true) throw new Error('phone flag not set');
+  return 'CCTV down · journalist freed · line tapped';
+});
+
+check('Chapter 04 KONSUL decision resolves exactly once and writes the branch flag', () => {
+  const W = game.world, P = game.player.pos;
+  let intel = 0;
+  const orig = game.mission.addIntel.bind(game.mission);
+  game.mission.addIntel = (item) => { intel += 1; return orig(item); };
+  P.set(2, W.collision.surfaceAt(2, -83, 3, 0.3) + 1.2, -83);
+  simulate(game, 0.4, { force: true });
+  if (!game.hud.choice || game.hud.choice.options.length < 2) throw new Error('KONSUL decision did not open');
+  game.hud.commitChoice(0);
+  game.mission.addIntel = orig;
+  if (!game.mission.objectives[6].done) throw new Error('KONSUL objective never completed');
+  // Applying the option twice would double the intel award — that bug existed
+  // once when the headless path called apply() and commitChoice() together.
+  if (intel !== 1) throw new Error(`KONSUL intel awarded ${intel} times, expected 1`);
+  if (game.save.progress.flags[CH04_FLAGS.KONSUL_ALIVE] !== true) throw new Error('KONSUL_ALIVE not recorded');
+  if (game.save.progress.flags[CH04_FLAGS.KONSUL_DEAD] === true) throw new Error('both branch flags set');
+  if (game.choiceOpen) throw new Error('decision card left the world frozen');
+  return 'one intel award · KONSUL_ALIVE set · card closed';
+});
+
+check('Chapter 04 streets are actually connected, not just drawn', () => {
+  // A level can look like a street on screen and still be sealed: an 8 cm
+  // railing collider or a room dropped on a cross street blocks the route, and
+  // the squad's greedy steer() then jams and the team never arrives. Flood-fill
+  // the walkable grid and prove the hotel is reachable from the spawn and from
+  // both flanks.
+  const col = game.world.collision;
+  const STEP = 2.0;
+  const free = (x, z) => !col.pointSolid(x, 1.0, z, -0.05);
+  const key = (i, j) => `${i},${j}`;
+  const gi = Math.round(0 / STEP), gj = Math.round(-72 / STEP);
+
+  const reachable = (sx, sz) => {
+    const si = Math.round(sx / STEP), sj = Math.round(sz / STEP);
+    if (!free(si * STEP, sj * STEP)) return false;
+    const seen = new Set([key(si, sj)]);
+    const q = [[si, sj]];
+    while (q.length) {
+      const [i, j] = q.shift();
+      if (i === gi && j === gj) return true;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di, nj = j + dj, k = key(ni, nj);
+        if (seen.has(k)) continue;
+        if (Math.abs(ni * STEP) > 150 || Math.abs(nj * STEP) > 150) continue;
+        if (!free(ni * STEP, nj * STEP)) continue;
+        seen.add(k); q.push([ni, nj]);
+      }
+    }
+    return false;
+  };
+
+  const starts = { spawn: [0, 96], west: [-60, 88], east: [60, 88], market: [0, 34] };
+  const bad = Object.entries(starts).filter(([, [x, z]]) => !reachable(x, z)).map(([n]) => n);
+  if (bad.length) throw new Error(`hotel unreachable from: ${bad.join(', ')}`);
+  return `hotel reachable from ${Object.keys(starts).length} approaches`;
+});
+
+check('Chapter 04 squad follows the player the full length of the map', () => {
+  const P = game.player.pos;
+  game.ai.enemies.forEach((e) => { e.holdFire = true; e.awareness = 0; });
+  for (const z of [80, 60, 40, 20, 0, -20, -40, -58]) {
+    for (let i = 0; i < 300; i++) {
+      P.x += (0 - P.x) * 0.02;
+      P.z += (z - P.z) * 0.02;
+      game.fixedStep(1 / 60);
+      game.time += 1 / 60;
+      game.input.endFrame();
+    }
+    const lag = Math.max(...game.ai.squad.map((s) => Math.hypot(s.pos.x - P.x, s.pos.z - P.z)));
+    if (lag > 30) throw new Error(`squad left behind at z=${z}: worst ${lag.toFixed(0)} m`);
+  }
+  const worst = Math.max(...game.ai.squad.map((s) => Math.hypot(s.pos.x - P.x, s.pos.z - P.z)));
+  return `all 3 kept up (worst ${worst.toFixed(1)} m)`;
+});
+
+check('Chapter 04 plays start to finish along the real route', () => {
+  // Restart so this walks the intended path instead of inheriting the
+  // teleports the individual beat tests used.
+  game.startMission('ch04_city_of_shadows');
+  const W = game.world, P = game.player.pos;
+  const cam = game.player.viewCam;
+  const tp = (x, z) => P.set(x, W.collision.surfaceAt(x, z, 3, 0.3) + 1.2, z);
+  // Keep the garrison blind so the photography beat is testable in isolation;
+  // being seen by a hostile correctly refuses the shot, which would otherwise
+  // make this a test of the AI's alertness rather than of the mission flow.
+  const step = (s = 0.3) => {
+    game.ai.enemies.forEach((e) => { e.awareness = 0; e.state = 'idle'; e.alerted = false; });
+    simulate(game, s, { force: true });
+    game.ai.enemies.forEach((e) => { e.awareness = 0; e.state = 'idle'; e.alerted = false; });
+  };
+
+  tp(0, 34); step();                       // 4.1 the canal / market
+  // 4.2 photograph each courier. The camera is rebuilt from player.yaw/pitch
+  // every step, so the test has to aim the player, not poke the camera.
+  for (const c of game.levelCtx.couriers) {
+    const cp = { x: c.pos.x, y: c.pos.y + 1.1, z: c.pos.z };
+    tp(cp.x, cp.z + 5);
+    game.player.yaw = Math.atan2(-(c.pos.x - P.x), -(c.pos.z - P.z));
+    game.player.pitch = 0;
+    // The camera has a 0.6 s shutter cooldown between frames, so each
+    // photograph needs the player held on target for longer than that.
+    for (let k = 0; k < 8; k++) step(0.15);
+  }
+  tp(22, 22); step();                      // 4.3 CCTV junction box
+  tp(-30.6, 21); step();                   // 4.3 journalist's storeroom
+  tp(-28, 1); step();                      // 4.3 phone tap
+  tp(0, -72); step();                      // 4.4 the hotel
+  tp(2, -83); step();
+  if (game.hud.choice) game.hud.commitChoice(0);
+
+  const missing = game.mission.objectives.filter((o) => !o.done).map((o) => o.id);
+  const got = game.levelCtx.state.photographed.size;
+  if (missing.length) {
+    throw new Error(`objectives never completed: ${missing.join(',')} (couriers ${got}/3)`);
+  }
+
+  // Now let the world settle and check nothing diverges.
+  let nan = 0;
+  for (let i = 0; i < 900; i++) {
+    game.fixedStep(1 / 60);
+    game.time += 1 / 60;
+    game.input.endFrame();
+    if (!Number.isFinite(P.x) || !Number.isFinite(P.y) || !Number.isFinite(P.z)) nan += 1;
+  }
+  if (nan) throw new Error(`${nan} frames with NaN player position`);
+  const done = game.mission.objectives.filter((o) => o.done).length;
+  return `${done}/${game.mission.objectives.length} objectives · 0 NaN over 15 s`;
 });
 
 // ---------------------------------------------------------------- forensics

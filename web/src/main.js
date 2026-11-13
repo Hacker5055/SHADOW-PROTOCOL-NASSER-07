@@ -6,6 +6,7 @@ import { Game } from './game/game.js';
 import { CHAPTER_01_MISSIONS, buildCrossingMission, buildDepotMission } from './levels/chapter01.js';
 import { CHAPTER_02_MISSION, buildSilentMission } from './levels/chapter02.js';
 import { CHAPTER_03_MISSION, buildArchiveMission } from './levels/chapter03.js';
+import { CHAPTER_04_MISSION, buildViennaMission } from './levels/chapter04.js';
 import * as models from './game/models.js';
 
 // models are reachable from level builders that need optional props
@@ -44,12 +45,14 @@ function start() {
   game.registerMission(CHAPTER_01_MISSIONS[1], buildDepotMission);
   game.registerMission(CHAPTER_02_MISSION, buildSilentMission);
   game.registerMission(CHAPTER_03_MISSION, buildArchiveMission);
+  game.registerMission(CHAPTER_04_MISSION, buildViennaMission);
 
   // hooks used by the mission builders
   CHAPTER_01_MISSIONS[0].onStart = (g) => { g.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (g) => { g.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (g) => { g.chapterIndex = 2; };
   CHAPTER_03_MISSION.onStart = (g) => { g.chapterIndex = 3; };
+  CHAPTER_04_MISSION.onStart = (g) => { g.chapterIndex = 4; };
 
   // the chapter-01 finale chains into chapter 02
   const origComplete = game.onMissionComplete.bind(game);

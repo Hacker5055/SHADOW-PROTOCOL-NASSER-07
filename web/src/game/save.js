@@ -20,8 +20,13 @@ const DEFAULT_PROGRESS = {
     SPARED_CURATOR: false,
     PUBLISHED_LEDGER: false,
     KONSUL_ALIVE: false,
+    KONSUL_DEAD: false,
     ZIDAN_STATE: 'unknown',
-    LEDGER_COPY: false
+    LEDGER_COPY: false,
+    WITHHELD_SCAN: false,
+    CCTV_DOWN: false,
+    JOURNALIST_FREED: false,
+    PHONE_TAPPED: false
   },
   casualties: 0,
   endingsSeen: [],
