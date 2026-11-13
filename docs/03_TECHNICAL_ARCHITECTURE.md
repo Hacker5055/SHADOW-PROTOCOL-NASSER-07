@@ -423,6 +423,46 @@ them by name, so a lowercase variant is silently invisible.
   an exit, they just run.
 - No save checkpoint inside the mission yet — checkpoints are chapter-granular here.
 
+## 12.4 Chapter 05 — timed pressure (browser slice)
+
+`levels/chapter05.js` + `levels/libDanube.js`. A safehouse, a Danube freight yard, and a
+structure that is deliberately different from 01-04: one quiet room, one ninety-second
+ambush, then three objectives that cannot all be reached.
+
+**All story timing runs on accumulated sim time, never `setTimeout`.** Chapter 05 needs
+an eleven-second dialogue sequence, a ninety-second ambush and a 150-second recovery
+window. Wall-clock timers were the obvious tool and the wrong one, for three reasons:
+
+1. They keep ticking while the game is paused.
+2. They ignore any time-scale change.
+3. The headless harness clamps `setTimeout` to 4 ms, so the entire ambush — including
+   the scripted death — ran inside a single simulated frame and the tests validated a
+   sequence the player never sees.
+
+The chapter uses a small queue drained from `world.addAnimated`, keyed on `game.time`.
+Fixing this also cut a single test run from 106 s to about 7 s, because the stub's 4 ms
+clamp was being hit as real latency hundreds of times.
+
+**Lazy cast lookup.** The level builder runs *before* `ai.spawnSquad()`, so `game.ai.squad`
+is still empty when `buildBetrayalMission` executes. Looking up GLASS/MOUSE/FANG eagerly
+returned three `undefined`s and the scripted death silently never fired — the chapter's
+central beat, gone, with no error. The cast is resolved through a `cast()` closure at the
+moment each beat needs it.
+
+**The clock has to say what it cost.** When the recovery window closes, the names of
+whatever was not reached are pushed into `state.lost` and spoken in the HUD. A timed
+chapter that silently drops an objective is indistinguishable from a bug.
+
+**Reachability is tested, not assumed.** All three recovery points are proven walkable
+from the yard by flood-fill before any of it is called done.
+
+### Known limitations in this chapter
+
+- No metro-tunnel interior: FANG is at the steps, not 200 m underground.
+- No flash-forward epilogue to the Delta safehouse.
+- The ambush is lethal but not adaptive — a fixed eight-attacker assault rather than a
+  reaction to how the player has played the previous four chapters.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -437,6 +477,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/mission.js` — objectives, hooks, checkpoints | `ASPMissionManager`, `USPMissionData` | UE moves objective definitions into data assets |
 | `game/forensics.js` — UV ink analysis minigame (domain logic, headlessly tested) | none yet | UE: implement as a UMG widget over the same rule set; no C++ counterpart written |
 | `levels/chapter04.js` + `libVienna.js` — semi-open Vienna streets, view-cone surveillance | none yet | UE: authored `L_Chapter04_Vienna`, navmesh instead of `steer()`, and the courier photography as a tagged-camera volume check |
+| `levels/chapter05.js` + `libDanube.js` — safehouse, timed recoveries, scripted squad death | none yet | UE: `ASPTimedObjectiveActor` over `game.time` equivalents; the sim-time queue is the pattern to port, not `SetTimer` with wall-clock semantics |
 | `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
 | `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |

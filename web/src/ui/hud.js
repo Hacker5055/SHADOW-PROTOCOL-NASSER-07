@@ -40,6 +40,10 @@ const css = `
 #objective .label{font-size:10px;color:var(--orange);letter-spacing:.22em;margin-bottom:6px}
 #objective .primary{font-size:14px;line-height:1.35;color:var(--bone);letter-spacing:.04em}
 #objective .sub{margin-top:8px;padding-top:8px;border-top:1px solid rgba(201,191,163,.16);font-size:11px;color:rgba(232,226,208,.6);line-height:1.5}
+#objective .timer{margin-top:7px;font-size:13px;letter-spacing:.16em;color:var(--orange);font-variant-numeric:tabular-nums;display:none}
+#objective .timer.show{display:block}
+#objective .timer.critical{color:#e8503a;animation:timerpulse .9s ease-in-out infinite}
+@keyframes timerpulse{0%,100%{opacity:1}50%{opacity:.35}}
 #objective .sub .ok{color:var(--green)}
 #objective .sub .todo::before{content:'▢ ';color:var(--orange)}
 #objective .sub .ok::before{content:'▣ ';color:var(--green)}
@@ -240,6 +244,7 @@ export class HUD {
         <div class="label">CURRENT OBJECTIVE</div>
         <div class="primary" id="obj-primary">—</div>
         <div class="sub" id="obj-sub"></div>
+        <div class="timer" id="obj-timer"></div>
       </div>
 
       <div id="team" class="hud-panel">
@@ -324,7 +329,7 @@ export class HUD {
     `;
 
     this.el = {};
-    for (const id of ['compass-inner', 'objective-marker-labels', 'obj-primary', 'obj-sub', 'team-list', 'team-count',
+    for (const id of ['compass-inner', 'objective-marker-labels', 'obj-primary', 'obj-sub', 'obj-timer', 'team-list', 'team-count',
       'health-val', 'health-fill', 'health-state', 'stamina-fill', 'stance', 'lean', 'spd', 'wname', 'mag', 'reserve',
       'fire-mode', 'reload-bar', 'reload-fill', 'grenade-count', 'crosshair', 'hitmarker', 'headshot-tag', 'feed',
       'prompt', 'interact', 'interact-label', 'subtitles', 'objectives-overlay', 'ovl-list', 'ovl-title', 'ovl-code',
@@ -378,6 +383,30 @@ export class HUD {
     this.el['obj-primary'].textContent = primary;
     this.el['obj-sub'].innerHTML = subs.map((s) =>
       `<div class="${s.done ? 'ok' : 'todo'}">${s.text}</div>`).join('');
+    // The objective block is re-synced on every completion, so the countdown
+    // has to survive that or it vanishes the moment anything else resolves.
+    this._renderTimer();
+  }
+
+  /**
+   * Countdown pressure for timed beats (chapter 05's three parallel recoveries).
+   * Pass null to clear. `seconds` is remaining time.
+   */
+  setObjectiveTimer(seconds, label = 'TIME TO EXTRACTION') {
+    this._timer = seconds == null ? null : { seconds, label };
+    this._renderTimer();
+  }
+
+  _renderTimer() {
+    const el = this.el['obj-timer'];
+    if (!el) return;
+    if (!this._timer) { el.classList.remove('show', 'critical'); el.textContent = ''; return; }
+    const s = Math.max(0, this._timer.seconds);
+    const mm = Math.floor(s / 60);
+    const ss = Math.floor(s % 60);
+    el.textContent = `${this._timer.label}  ${mm}:${String(ss).padStart(2, '0')}`;
+    el.classList.add('show');
+    el.classList.toggle('critical', s <= 20);
   }
 
   setObjectivesOverlay(title, code, objectives, intel) {

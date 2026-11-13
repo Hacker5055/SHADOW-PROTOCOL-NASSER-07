@@ -25,6 +25,7 @@ const { CHAPTER_01_MISSIONS, buildCrossingMission, buildDepotMission } = await i
 const { CHAPTER_02_MISSION, buildSilentMission } = await import('../src/levels/chapter02.js');
 const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('../src/levels/chapter03.js');
 const { CHAPTER_04_MISSION, buildViennaMission, CH04_FLAGS, CH04_LAYOUT, inShot } = await import('../src/levels/chapter04.js');
+const { CHAPTER_05_MISSION, buildBetrayalMission, CH05_FLAGS, CH05_LAYOUT } = await import('../src/levels/chapter05.js');
 const models = await import('../src/game/models.js');
 const THREE = await import('three');
 const weaponsMod = await import('../src/game/weapons.js');
@@ -95,11 +96,13 @@ function makeGame() {
   g.registerMission(CHAPTER_02_MISSION, buildSilentMission);
   g.registerMission(CHAPTER_03_MISSION, buildArchiveMission);
   g.registerMission(CHAPTER_04_MISSION, buildViennaMission);
+  g.registerMission(CHAPTER_05_MISSION, buildBetrayalMission);
   CHAPTER_01_MISSIONS[0].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (gg) => { gg.chapterIndex = 2; };
   CHAPTER_03_MISSION.onStart = (gg) => { gg.chapterIndex = 3; };
   CHAPTER_04_MISSION.onStart = (gg) => { gg.chapterIndex = 4; };
+  CHAPTER_05_MISSION.onStart = (gg) => { gg.chapterIndex = 5; };
   return g;
 }
 
@@ -216,12 +219,19 @@ check('Shooting damages and kills an enemy', () => {
   e.dead = false;
   const hpBefore = e.health;
   let shots = 0;
+  // ADS drops the cone to ~0.003 rad. At hip-fire spread a run of 40 shots can
+  // all miss a 0.4 m torso at 8 m, which made this assertion flaky roughly one
+  // run in fifteen - the test was measuring luck, not damage.
+  p.aiming = true;
+  p.adsT = 1;
   for (let i = 0; i < 40 && !e.dead; i++) {
     p.weapon.fireCooldown = 0;
     p.weapon.ammo = 30;
     p._shoot();
     shots++;
   }
+  p.aiming = false;
+  p.adsT = 0;
   if (!e.dead && e.health >= hpBefore) throw new Error(`enemy took no damage (hp ${e.health}/${hpBefore})`);
   return `${shots} shots, hp ${hpBefore} → ${e.health.toFixed(0)}${e.dead ? ' (killed)' : ''}`;
 });
@@ -301,7 +311,9 @@ check('Squad orders move members', () => {
 
   let startDist = Math.hypot(s.orderPos.x - s.pos.x, s.orderPos.z - s.pos.z);
   let closest = startDist;
-  for (let i = 0; i < 90; i++) {
+  // Two passes: if the first heading is blocked the member now backs out and
+  // retries (see the blockedT recovery in ai.js), which takes a moment longer.
+  for (let i = 0; i < 180; i++) {
     game.fixedStep(1 / 60);
     game.time += 1 / 60;
     game.input.endFrame();
@@ -831,6 +843,181 @@ check('Chapter 04 plays start to finish along the real route', () => {
   if (nan) throw new Error(`${nan} frames with NaN player position`);
   const done = game.mission.objectives.filter((o) => o.done).length;
   return `${done}/${game.mission.objectives.length} objectives · 0 NaN over 15 s`;
+});
+
+check('Chapter 05 Betrayal opens in the safehouse and fires the ambush on time', () => {
+  game.startMission('ch05_betrayal');
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  P.set(0, 1, CH05_LAYOUT.safehouseZ);
+  // god mode: the beat under test is the schedule, not survivability
+  game.player.health = 1000;
+  game.player.maxHealth = 1000;
+  simulate(game, 1, { force: true });
+  if (!st.tea) throw new Error('safehouse beat did not fire');
+  if (st.ambushFired) throw new Error('ambush fired immediately');
+  simulate(game, 12, { force: true });
+  if (!st.ambushFired) throw new Error('ambush never fired');
+  const attackers = game.ai.enemies.filter((e) => e.faction === 'network');
+  if (attackers.length < 6) throw new Error(`only ${attackers.length} attackers`);
+  return `tea → ambush at ${game.time.toFixed(0)}s · ${attackers.length} attackers`;
+});
+
+check('Chapter 05 three recovery points are all genuinely walkable', () => {
+  // The chapter's whole design rests on the player being able to reach all
+  // three objectives. If one sits inside geometry the timer becomes unfair
+  // rather than dramatic, and that failure is invisible on screen.
+  game.startMission('ch05_betrayal');
+  const col = game.world.collision;
+  const STEP = 2.0;
+  const free = (x, z) => !col.pointSolid(x, 1.0, z, -0.05);
+  const key = (i, j) => `${i},${j}`;
+  const si = Math.round(0 / STEP), sj = Math.round(44 / STEP);
+  if (!free(si * STEP, sj * STEP)) throw new Error('yard start is inside geometry');
+  const seen = new Set([key(si, sj)]);
+  const q = [[si, sj]];
+  while (q.length) {
+    const [i, j] = q.shift();
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di, nj = j + dj, k = key(ni, nj);
+      if (seen.has(k)) continue;
+      if (Math.abs(ni * STEP) > 140 || Math.abs(nj * STEP) > 140) continue;
+      if (!free(ni * STEP, nj * STEP)) continue;
+      seen.add(k); q.push([ni, nj]);
+    }
+  }
+  const at = (x, z) => seen.has(key(Math.round(x / STEP), Math.round(z / STEP)));
+  const targets = {
+    intel: [CH05_LAYOUT.shedX, CH05_LAYOUT.shedZ + 3],
+    FANG: [CH05_LAYOUT.metroX, CH05_LAYOUT.metroZ],
+    MOUSE: [CH05_LAYOUT.mouseX, CH05_LAYOUT.mouseZ]
+  };
+  const blocked = Object.entries(targets).filter(([, [x, z]]) => !at(x, z)).map(([n]) => n);
+  if (blocked.length) throw new Error(`unreachable: ${blocked.join(', ')}`);
+  return `all 3 reachable (${seen.size} walkable cells)`;
+});
+
+check('Chapter 05 GLASS dies during the ambush and the flag records it', () => {
+  // The cast is resolved lazily on purpose: the level builder runs before
+  // ai.spawnSquad(), so an eager lookup here silently produced undefined and
+  // the scripted death never happened at all.
+  // Run a fresh chapter so this does not depend on a previous test's state.
+  game.startMission('ch05_betrayal');
+  game.player.health = 1000;
+  game.player.maxHealth = 1000;
+  game.player.pos.set(0, 1, CH05_LAYOUT.safehouseZ);
+  const st = game.levelCtx.state;
+  simulate(game, 1, { force: true });
+  // The ambush opens ~11 s into the chapter and GLASS goes down 9 s after it
+  // starts, so the death lands around t=20 s. Run to 30 s and stop early.
+  simulate(game, 12, { force: true });
+  if (!st.ambushFired) throw new Error('ambush never fired');
+  let guard = 0;
+  while (!st.glassDown && guard++ < 30) simulate(game, 1, { force: true });
+  if (!st.glassDown) throw new Error('GLASS never went down');
+  if (game.save.progress.flags[CH05_FLAGS.GLASS_DEAD] !== true) throw new Error('GLASS_DEAD flag missing');
+  const glass = game.ai.squad.find((s) => s.callsign === 'GLASS');
+  if (glass && !glass.dead && !glass.down) throw new Error('GLASS is walking around after dying');
+  return 'GLASS down · GLASS_DEAD set';
+});
+
+check('Chapter 05 timer expires, names what was lost, and still completes', () => {
+  const st = game.levelCtx.state;
+  game.player.health = 1000;
+  // Let the ambush ride out, then stand still for the entire recovery window.
+  let guard = 0;
+  while (!st.ambushOver && guard++ < 400) simulate(game, 1, { force: true });
+  if (!st.ambushOver) throw new Error('ambush never ended');
+  if (!st.timerOn) throw new Error('recovery timer never started');
+  guard = 0;
+  while (st.timerOn && guard++ < 400) simulate(game, 1, { force: true });
+  if (st.timeLeft > 0.001) throw new Error(`timer stuck at ${st.timeLeft.toFixed(1)}`);
+  // Nothing was reached, so all three must be named as lost — silence here is
+  // the bug: the player has to be told what the clock cost them.
+  if (st.lost.length !== 3) throw new Error(`lost ${JSON.stringify(st.lost)}, expected 3`);
+  simulate(game, 4, { force: true });
+  if (game.hud.choice) game.hud.commitChoice(0);
+  if (!game.mission.objectives[5].done) throw new Error('MOUSE decision never resolved');
+  if (!game.mission.complete) throw new Error('chapter did not complete');
+  return `lost ${st.lost.length}/3 · decision resolved · chapter complete`;
+});
+
+check('Chapter 05 recovers all three and trusts MOUSE when you beat the clock', () => {
+  game.startMission('ch05_betrayal');
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  P.set(0, 1, CH05_LAYOUT.safehouseZ);
+  game.player.health = 1000;
+  game.player.maxHealth = 1000;
+  let guard = 0;
+  while (!st.timerOn && guard++ < 400) simulate(game, 1, { force: true });
+  if (!st.timerOn) throw new Error('recovery window never opened');
+
+  P.set(CH05_LAYOUT.shedX, 1, CH05_LAYOUT.shedZ + 3);
+  simulate(game, 0.6, { force: true });
+  P.set(CH05_LAYOUT.metroX, 1, CH05_LAYOUT.metroZ);
+  simulate(game, 0.6, { force: true });
+  P.set(CH05_LAYOUT.mouseX, 1, CH05_LAYOUT.mouseZ);
+  simulate(game, 2.5, { force: true });
+
+  if (!st.intelRecovered) throw new Error('intel not recovered');
+  if (!st.fangReached) throw new Error('FANG not reached');
+  if (!st.mouseReached) throw new Error('MOUSE not reached');
+  if (st.timeLeft <= 0) throw new Error('window closed despite a complete run');
+  if (!game.hud.choice) throw new Error('MOUSE decision did not open');
+  game.hud.commitChoice(0);
+  if (game.save.progress.flags[CH05_FLAGS.TRUST_ADEL] !== true) throw new Error('TRUST_ADEL not set');
+  return `3/3 recovered with ${st.timeLeft.toFixed(0)}s to spare · TRUST_ADEL set`;
+});
+
+check('Chapter 04 KONSUL outcome is carried into Chapter 05', () => {
+  // Play chapter 05 with the alive branch already recorded and confirm the
+  // safehouse beat actually acknowledges it — a flag nothing reads is not a
+  // choice, it is decoration.
+  game.save.progress.flags.KONSUL_ALIVE = true;
+  game.save.progress.flags.KONSUL_DEAD = false;
+  game.startMission('ch05_betrayal');
+  game.player.health = 1000;
+  game.player.maxHealth = 1000;
+  game.player.pos.set(0, 1, CH05_LAYOUT.safehouseZ);
+  simulate(game, 1.2, { force: true });
+  if (!game.levelCtx.state.tea) throw new Error('safehouse beat did not fire');
+  const ids = game.mission.intelLog.map((i) => i.id);
+  if (!ids.includes('ch05_konsul_debrief')) throw new Error('KONSUL custody not acknowledged');
+  return 'KONSUL_ALIVE → ch05 debrief intel';
+});
+
+check('Chapter 05 runs to the end with no NaN and no softlock', () => {
+  // Self-contained: the continuity test above restarts the chapter, so drive a
+  // fresh run from the safehouse rather than inheriting whatever state is left.
+  game.startMission('ch05_betrayal');
+  game.player.health = 1000;
+  game.player.maxHealth = 1000;
+  game.player.pos.set(0, 1, CH05_LAYOUT.safehouseZ);
+  const P = game.player.pos;
+  simulate(game, 1, { force: true });
+  const st = game.levelCtx.state;
+  let guard = 0;
+  while (!st.ambushOver && guard++ < 400) simulate(game, 1, { force: true });
+  if (!st.ambushOver) throw new Error('ambush never resolved');
+  guard = 0;
+  while (!game.mission.complete && guard++ < 400) {
+    // head straight for MOUSE so the final decision can open
+    P.set(CH05_LAYOUT.mouseX, 1, CH05_LAYOUT.mouseZ);
+    simulate(game, 1, { force: true });
+    if (game.hud.choice) game.hud.commitChoice(0);
+  }
+  let nan = 0;
+  for (let i = 0; i < 1200; i++) {
+    game.fixedStep(1 / 60);
+    game.time += 1 / 60;
+    game.input.endFrame();
+    if (!Number.isFinite(P.x) || !Number.isFinite(P.y) || !Number.isFinite(P.z)) nan += 1;
+  }
+  if (nan) throw new Error(`${nan} frames with NaN player position`);
+  if (game.hud.choice) game.hud.commitChoice(0);
+  if (!game.mission.complete) throw new Error('chapter never reached completion');
+  return `0 NaN over 20 s · chapter complete`;
 });
 
 // ---------------------------------------------------------------- forensics
