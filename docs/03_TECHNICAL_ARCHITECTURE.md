@@ -207,6 +207,72 @@ Full bindings: `Config/DefaultInput.ini`.
 
 ---
 
+## 12.2 Character animation (browser slice)
+
+Enemies and squadmates are real rigged meshes playing real motion-capture clips.
+This section records what was measured, because the previous implementation was
+30 axis-aligned boxes with a single `Math.sin(t) * speed * 0.11` gait term.
+
+### Assets and why these ones
+
+| Candidate | Verdict |
+|---|---|
+| Quaternius **Universal Animation Library** (CC0 1.0) | **Chosen.** 53 bones, 3390 verts, 46 clips, metric scale, authored speeds match the game |
+| three.js `Soldier.glb` (MIT) | Rejected as a body: sci-fi helmet, pauldrons, plate armour; one flat white material. Still used for first-person arms |
+| `CesiumMan` (CC-BY 4.0) | Rejected: featureless mannequin, no garment, 19 bones |
+| Mixamo-derived GitHub repositories | Rejected: Mixamo's terms forbid redistributing the raw animation files, so a repo's licence cannot travel with the asset |
+
+Provenance and licence text live beside the files:
+`web/public/models/LICENSE-quaternius-UAL.txt`.
+
+### Measured authored ground speeds
+
+Planted-foot travel relative to the hips, sampled over one cycle:
+
+| clip | duration | authored speed | game speed it serves |
+|---|---|---|---|
+| `Walk_Formal_Loop` | 1.33 s | 1.63 m/s | walk 1.9 |
+| `Jog_Fwd_Loop` | 0.92 s | 4.69 m/s | run 4.6 |
+| `Sprint_Loop` | 0.67 s | 6.21 m/s | tactical sprint 6.2 |
+| `Crouch_Fwd_Loop` | 2.00 s | 1.10 m/s | crouch-walk ~1.4 |
+
+Because the clips already bracket the game's speeds, the playback correction is
+small — measured `timeScale` 1.17 / 1.24 / 1.14 / 1.00 at 1.9 / 3.5 / 4.6 / 6.2 m/s.
+
+**The direction of that correction matters and is easy to get wrong.** Playback
+rate must be `characterSpeed / clipAuthoredSpeed`: moving faster than the clip was
+authored for means the planted foot travels further per second, so the cycle runs
+*faster*. Dividing instead of multiplying makes foot slide roughly twice as bad as
+doing nothing, which is what the first attempt in this session actually did.
+
+### Blending
+
+Five clips crossfade by speed and stance, with weights forced to sum to 1
+(`idle → walk → jog → sprint`, and `crouchIdle → crouchWalk`). Overlapping weights
+are silently renormalised by `AnimationMixer`, so an accidental 1.0/1.0 blend looks
+like a character moonwalking rather than throwing an error — hence the explicit
+summation test.
+
+Death runs `Death01` once with `clampWhenFinished` and holds the final pose; the
+locomotion actions are zeroed first so they cannot play underneath it.
+
+### Dressing
+
+The library ships one untextured material. Colouring it per bone group (uniform /
+trousers / boots / skin, blended per vertex so joints do not band) plus a helmet
+and chest-rig primitive parented to `DEF-head` and `DEF-spine003` is what turns a
+mannequin into a soldier. Both inherit the animation for free.
+
+### Known gaps
+
+- The face is flat-shaded with no eyes or mouth; it reads correctly at gameplay
+  distance and badly in a close-up. There is no facial rig.
+- Aiming does not yet offset the arms onto the weapon in third person; the rifle is
+  parented to the hand and follows it, so it swings with the idle cycle.
+- No IK foot planting, so steep slopes and stairs still slide.
+
+---
+
 ## 12.1 First-person view model (browser slice)
 
 The slice renders first-person arms and the weapon in a dedicated view-model scene, drawn
@@ -307,6 +373,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/save.js` — checkpoint + campaign state | `USPSaveGame`, `USPProgressSubsystem` | UE persists to slot files + config |
 | `ui/menu.js`, `ui/hud.js` | `USPHUDWidget`, `USPPauseMenuWidget` | UE HUD data model is C++; layout is UMG |
 | `engine/physics.js` — collider push-out | engine `UCharacterMovementComponent` collision | Not reimplemented |
+| `game/character.js` — CC0 rigged library, blended locomotion, kit dressing | `USPAnimInstance` + skeletal mesh assets | Clips are CC0; the Unreal side would use AnimBPs over the same clips |
 | `game/viewmodel.js` — inverted-pendulum-free two-bone IK arms, weapon pose tracks, reload timeline | `USPAnimInstance` + AnimMontage (not authored) | The slice solves arms analytically; UE would use AnimBPs, so this is **not** a port target — see §12.1 |
 | `levels/chapter03.js` + `libCairo.js` — Cairo hub | objective rows in `Content/Data/DT_Objectives.csv`; mission spec in `Tools/build_mission_assets.py`; **no UE level yet** | Content parity for the design, not for the build |
-| `tools/simtest.mjs` — 53 checks (4 missions + view model) | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |
+| `tools/simtest.mjs` — 60 checks (4 missions + view model + characters) | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |

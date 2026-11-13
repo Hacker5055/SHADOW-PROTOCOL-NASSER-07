@@ -101,7 +101,9 @@ export function installStubs() {
     webkitAudioContext: undefined,
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     localStorage: makeStorage(),
-    navigator: { getGamepads: () => [] },
+    // userAgent matters: GLTFLoader sniffs it for a Safari-specific text-decode
+    // path and throws without it.
+    navigator: { getGamepads: () => [], userAgent: 'node-headless' },
     performance: { now: () => Date.now() },
     __SP_MODELS__: null,
     __SP_HELI__: null

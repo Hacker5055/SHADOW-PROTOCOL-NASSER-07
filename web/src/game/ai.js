@@ -10,8 +10,35 @@
  */
 import * as THREE from 'three';
 import { buildSoldier, buildWeaponModel, PALETTE } from './models.js';
+import { buildCharacter } from './character.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/**
+ * Make an animated character body for one actor.
+ *
+ * The rigged library is fetched once by the game and cached in `character.js`.
+ * If it is not available yet — first frames, or a failed fetch — this returns
+ * null and the caller keeps the blockout body, so gameplay never blocks on art.
+ */
+let _charGltf = null;
+export function setCharacterSource(gltf) { _charGltf = gltf; }
+export function hasCharacterSource() { return !!_charGltf; }
+
+function makeBody(palette, opts = {}) {
+  if (_charGltf) {
+    try {
+      return buildCharacter(_charGltf, { palette, ...opts });
+    } catch (err) {
+      console.warn('[ai] character build failed, using blockout body:', err.message);
+    }
+  }
+  // Blockout fallback: still a playable body, never a crash and never a gap in
+  // the level while the 4 MB character library is still arriving.
+  return buildSoldier(palette, opts);
+}
+
+
 const lerp = (a, b, t) => a + (b - a) * t;
 const dist2D = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
@@ -80,7 +107,7 @@ export class Enemy {
 
     // model
     const palette = cfg.palette || (this.era === '1973' ? PALETTE.israeli1973 : PALETTE.nkGuard);
-    this.soldier = buildSoldier(palette, { era: this.era === '1973' ? '1973' : 'modern', radio: this.role === 'officer' });
+    this.soldier = makeBody(palette, { era: this.era === '1973' ? '1973' : 'modern', role: this.role });
     this.mesh = this.soldier.group;
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.y = this.yaw;
@@ -89,8 +116,14 @@ export class Enemy {
     this.gun = buildWeaponModel(this.weaponId);
     this.gun.scale.setScalar(1);
     this.soldier.parts.handR.add(this.gun);
-    this.gun.position.set(0, -0.32, 0.02);
-    this.gun.rotation.set(0.1, 0, 0);
+    if (this.soldier.isSkinned) {
+      // Mounted inside the hand bone; the weapon's own origin is the receiver.
+      this.gun.position.set(0, 0, 0);
+      this.gun.rotation.set(0, 0, 0);
+    } else {
+      this.gun.position.set(0, -0.32, 0.02);
+      this.gun.rotation.set(0.1, 0, 0);
+    }
 
     this.walkT = Math.random() * 6;
     this.speed = this.role === 'officer' ? 2.6 : 2.2;
@@ -466,6 +499,7 @@ export class Enemy {
     const spd = moving ? Math.hypot(this.pos.x - this.lastPos.x, this.pos.z - this.lastPos.z) / dt : 0;
     this.lastPos.copy(this.pos);
     this.soldier.pose(this.walkT, spd, 0, this.state === ENEMY_STATE.COMBAT || this.state === ENEMY_STATE.COVER ? 1 : 0.2);
+    if (this.soldier.update) this.soldier.update(dt);
     this.mesh.position.copy(this.pos);
 
     // stuck detection
@@ -549,13 +583,18 @@ export class SquadMember {
     this.kills = 0;
     this.suppressed = 0;
 
-    this.soldier = buildSoldier(cfg.palette || PALETTE.egypt1973, { era: cfg.era === 'modern' ? 'modern' : '1973', radio: cfg.role === 'comms', medic: cfg.role === 'medic' });
+    this.soldier = makeBody(cfg.palette || PALETTE.egypt1973, { era: cfg.era === 'modern' ? 'modern' : '1973', role: cfg.role });
     this.mesh = this.soldier.group;
     this.mesh.position.copy(this.pos);
     game.world.group.add(this.mesh);
     const gun = buildWeaponModel(this.weaponId);
     this.soldier.parts.handR.add(gun);
-    gun.position.set(0, -0.32, 0.02);
+    if (this.soldier.isSkinned) {
+      gun.position.set(0, 0, 0);
+      gun.rotation.set(0, 0, 0);
+    } else {
+      gun.position.set(0, -0.32, 0.02);
+    }
     this.gun = gun;
     this.lastPos = this.pos.clone();
   }
@@ -601,6 +640,7 @@ export class SquadMember {
       // progress decays if the player walks away without finishing
       if (!(p.reviveTarget === this)) this.reviveProgress = Math.max(0, this.reviveProgress - dt * 0.2);
       this.soldier.pose(0, 0, 1, 0);
+      if (this.soldier.update) this.soldier.update(dt);
       this.mesh.position.copy(this.pos);
       // bleed out on realism
       if (this.downT > (g.difficulty === 'realism' ? 22 : 45)) {
@@ -686,6 +726,7 @@ export class SquadMember {
 
     const aim = target ? 1 : (dGoal > 1.2 ? 0.25 : 0.55);
     this.soldier.pose(this.walkT, spd, 0, aim);
+    if (this.soldier.update) this.soldier.update(dt);
     this.mesh.rotation.y = this.yaw;
     this.mesh.position.copy(this.pos);
     this.lastPos.copy(this.pos);

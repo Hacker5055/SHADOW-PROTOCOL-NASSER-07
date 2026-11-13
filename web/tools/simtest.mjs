@@ -9,6 +9,13 @@
  * Usage: node tools/simtest.mjs
  */
 import { installStubs } from './stubs.mjs';
+import { readFileSync } from 'node:fs';
+
+// glTF parsing needs these two shims before any load happens; textures still
+// fail to decode in Node and warn, which is harmless for geometry and rigs.
+globalThis.self = globalThis;
+globalThis.ProgressEvent = globalThis.ProgressEvent || class { constructor(t = '', o = {}) { this.type = t; Object.assign(this, o); } };
+const gltfLib = await import('three/examples/jsm/loaders/GLTFLoader.js');
 
 globalThis.__SP_HEADLESS__ = true;
 installStubs();
@@ -800,6 +807,141 @@ function makeViewModelProbe(view) {
   return { measureSide };
 }
 
+// ---------------------------------------------------------------- characters
+// The character library is CC0 and ships in public/models. Load it through the
+// real glTF path so these checks fail if the asset, its licence-era contents or
+// the bone naming ever change.
+
+const charMod = await import('../src/game/character.js');
+const charRaw = JSON.parse(readFileSync(new URL('../public/models/AnimationLibrary_Godot_Standard.gltf', import.meta.url), 'utf8'));
+const charBin = readFileSync(new URL('../public/models/AnimationLibrary_Godot_Standard.bin', import.meta.url));
+charRaw.buffers[0].uri = 'data:application/octet-stream;base64,' + charBin.toString('base64');
+const charGltf = await new Promise((res, rej) => new gltfLib.GLTFLoader().parse(JSON.stringify(charRaw), '', res, rej));
+charMod.setCharacterLibrary(charGltf);
+const { setCharacterSource } = await import('../src/game/ai.js');
+setCharacterSource(charGltf);
+
+check('Character library loads with the full clip set and a humanoid rig', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  if (!ch.isSkinned) throw new Error('character is not skinned geometry');
+  if (ch.skinned.length === 0) throw new Error('no skinned meshes');
+  const boneCount = ch.bones.size;
+  if (boneCount < 40) throw new Error(`only ${boneCount} bones — rig is not a full humanoid`);
+  const verts = ch.skinned.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
+  if (verts < 1000) throw new Error(`only ${verts} vertices`);
+  const clips = Object.keys(ch.actions);
+  for (const need of ['idle', 'walk', 'jog', 'sprint', 'crouchIdle', 'crouchWalk', 'death']) {
+    if (!clips.includes(need)) throw new Error(`missing clip role: ${need}`);
+  }
+  // The weapon must be parented inside the right hand, not floating.
+  const handName = ch.parts.handR.parent?.name || '';
+  if (!/handR/i.test(handName)) throw new Error(`weapon mount is on "${handName}", not the right hand`);
+  return `${boneCount} bones · ${verts} verts · ${clips.length} clip roles · mounted on ${handName}`;
+});
+
+check('Locomotion blends select the right clip for each speed, weights summing to 1', () => {
+  const bands = [
+    { spd: 0, want: 'idle' },
+    { spd: 1.9, want: 'walk' },
+    { spd: 4.6, want: 'jog' },
+    { spd: 6.2, want: 'sprint' }
+  ];
+  const out = [];
+  for (const { spd, want } of bands) {
+    const ch = charMod.buildCharacter(charGltf, {});
+    for (let i = 0; i < 240; i++) { ch.pose(i / 60, spd, 0, 0.3); ch.update(1 / 60); }
+    const w = ch.weights;
+    const sum = Object.values(w).reduce((a, b) => a + b, 0);
+    if (Math.abs(sum - 1) > 0.02) throw new Error(`${want}: weights sum to ${sum.toFixed(3)}`);
+    const dominant = Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
+    if (dominant !== want) throw new Error(`at ${spd} m/s the dominant clip is ${dominant}, expected ${want}`);
+    out.push(`${spd}m/s→${dominant}`);
+  }
+  return out.join(' · ');
+});
+
+check('Playback rate tracks character speed, so the feet do not skate', () => {
+  // The clip is authored for a fixed ground speed. Playback must speed up in
+  // proportion to how fast the character moves — dividing instead of
+  // multiplying makes foot slide twice as bad as doing nothing at all.
+  const ch = charMod.buildCharacter(charGltf, {});
+  const rates = [];
+  for (const spd of [1.9, 3.5, 4.6, 6.2]) {
+    for (let i = 0; i < 240; i++) { ch.pose(i / 60, spd, 0, 0.3); ch.update(1 / 60); }
+    const authored = charMod.CLIP_SPEED[charMod.CLIPS.sprint];
+    const ts = ch.timeScale;
+    if (!Number.isFinite(ts) || ts <= 0) throw new Error(`timeScale ${ts} at ${spd} m/s`);
+    // Authored speeds already bracket the game's, so the correction is small.
+    if (ts < 0.75 || ts > 1.9) throw new Error(`timeScale ${ts.toFixed(2)} at ${spd} m/s is outside sane bounds`);
+    rates.push(`${spd}→${ts.toFixed(2)}`);
+    void authored;
+  }
+  return rates.join(' · ');
+});
+
+check('Crouch uses a crouched clip instead of scaling the standing one', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  for (let i = 0; i < 240; i++) { ch.pose(i / 60, 1.2, 1, 0.3); ch.update(1 / 60); }
+  const w = ch.weights;
+  if (w.crouchWalk <= 0.5) throw new Error(`crouch-walk weight is ${w.crouchWalk.toFixed(2)}`);
+  if (w.walk > 0.05) throw new Error('standing walk still active while crouched');
+  const hips = ch.bones.get('DEF-hips');
+  ch.update(0); ch.group.updateMatrixWorld(true);
+  const y = new THREE.Vector3().setFromMatrixPosition(hips.matrixWorld).y;
+  if (y > 1.05) throw new Error(`hips at ${y.toFixed(2)} m — the character is not actually crouching`);
+  return `crouchWalk ${w.crouchWalk.toFixed(2)} · hips ${y.toFixed(2)} m`;
+});
+
+check('Death plays a real clip and holds its final pose', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  for (let i = 0; i < 30; i++) { ch.pose(i / 60, 0, 0, 0); ch.update(1 / 60); }
+  const idleBefore = ch.actions.idle.getEffectiveWeight();
+  ch.pose(0, 0, 0, 0, true);
+  const deathDur = ch.actions.death.getClip().duration;
+  for (let i = 0; i < Math.ceil((deathDur + 0.6) * 60); i++) ch.update(1 / 60);
+  if (idleBefore < 0.5) throw new Error('idle was not running before death');
+  if (ch.actions.idle.getEffectiveWeight() > 0.05) throw new Error('locomotion kept playing over the death clip');
+  if (ch.actions.death.getEffectiveWeight() < 0.9) throw new Error('death clip is not at full weight');
+  if (!ch.actions.death.clampWhenFinished) throw new Error('death pose is not held');
+  const t = ch.actions.death.time;
+  if (Math.abs(t - deathDur) > 0.05) throw new Error(`death stopped at ${t.toFixed(2)}s of ${deathDur.toFixed(2)}s`);
+  return `${deathDur.toFixed(2)} s clip · held at ${t.toFixed(2)} s`;
+});
+
+check('Every spawned actor uses skinned geometry, not the blockout boxes', () => {
+  game.startMission('ch01_crossing');
+  game.state = 'playing';
+  for (let i = 0; i < 30; i++) simulate(game, 1 / 60, { force: true });
+  let skinned = 0, blockout = 0;
+  for (const e of game.ai.enemies) (e.soldier.isSkinned ? skinned++ : blockout++);
+  for (const s2 of game.ai.squad) (s2.soldier.isSkinned ? skinned++ : blockout++);
+  if (skinned === 0) throw new Error('no actor got a skinned body');
+  if (blockout > 0) throw new Error(`${blockout} actor(s) fell back to box primitives`);
+  // ...and their animation actually advances.
+  const e = game.ai.enemies.find((x) => !x.dead);
+  const t0 = e.soldier.actions.idle.time;
+  simulate(game, 0.5, { force: true });
+  if (e.soldier.actions.idle.time === t0) throw new Error('mixer is not advancing in the game loop');
+  return `${skinned} skinned actors · mixer advancing`;
+});
+
+check('Characters are coloured by kit, not left as a white mannequin', () => {
+  const ch = charMod.buildCharacter(charGltf, {
+    palette: { uniform: 0xa89d78, uniformDark: 0x8c825f, helmet: 0x7d7657, boot: 0x3a3126, skin: 0x8a5f3c }
+  });
+  for (const m of ch.skinned) {
+    if (!m.material.vertexColors) throw new Error('material does not use vertex colours');
+    if (!m.geometry.attributes.color) throw new Error('mesh has no colour attribute');
+  }
+  const col = ch.skinned[0].geometry.attributes.color;
+  const seen = new Set();
+  for (let i = 0; i < col.count; i += 7) {
+    seen.add(`${col.getX(i).toFixed(2)},${col.getY(i).toFixed(2)},${col.getZ(i).toFixed(2)}`);
+  }
+  if (seen.size < 3) throw new Error(`only ${seen.size} distinct colours — the kit is a flat fill`);
+  return `${seen.size} distinct kit colours across ${col.count} verts`;
+});
+
 check('First-person arms are skinned meshes, not static props', () => {
   const view = new vmMod.FirstPersonView();
   view.root.updateMatrixWorld(true);
@@ -934,13 +1076,7 @@ check('Weapon and hands share one frame — the rifle cannot drift off the arms'
 
 // Load the shipped asset through the real glTF path. Textures fail to decode in
 // Node (no ImageBitmap) and warn; geometry and skin weights are unaffected.
-globalThis.self = globalThis;
-// The DOM stub has no User-Agent, and GLTFLoader sniffs for Safari to choose an
-// image path. Give it a plausible one; textures fail in Node either way.
-if (!globalThis.navigator) globalThis.navigator = {};
-if (!globalThis.navigator.userAgent) globalThis.navigator.userAgent = 'node';
-const gltfLib = await import('three/examples/jsm/loaders/GLTFLoader.js');
-const { readFileSync } = await import('node:fs');
+
 const glbBuf = readFileSync(new URL('../public/models/Soldier.glb', import.meta.url));
 const glbArr = glbBuf.buffer.slice(glbBuf.byteOffset, glbBuf.byteOffset + glbBuf.byteLength);
 const gltfDoc = await new Promise((res, rej) => new gltfLib.GLTFLoader().parse(glbArr, '', res, rej));

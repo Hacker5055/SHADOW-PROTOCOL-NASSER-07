@@ -1,0 +1,21 @@
+Universal Animation Library (Standard, free version)
+====================================================
+
+Files:
+  AnimationLibrary_Godot_Standard.gltf
+  AnimationLibrary_Godot_Standard.bin
+
+Author : Quaternius  (https://quaternius.com)
+Pack   : https://quaternius.com/packs/universalanimationlibrary.html
+Source : https://quaternius.itch.io/universal-animation-library  (released 2025-06-10)
+Mirror : https://github.com/J-Ponzo/gltf-universal-animation-library
+
+Licence: CC0 1.0 Universal (Public Domain Dedication)
+         https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+CC0 places the work in the public domain: it may be used, modified and
+redistributed for any purpose, including commercially, without attribution.
+Attribution is given here anyway, as a courtesy to the author.
+
+No copyright notice accompanies the original archive because CC0 waives
+copyright rather than licensing it.

@@ -9,6 +9,8 @@ import { Renderer } from '../engine/renderer.js';
 import { AudioEngine } from '../engine/audio.js';
 import { Input } from '../engine/input.js';
 import { Player } from './player.js';
+import { loadCharacterLibrary } from './character.js';
+import { setCharacterSource } from './ai.js';
 import { World } from './world.js';
 import { AIDirector } from './ai.js';
 import { HUD } from '../ui/hud.js';
@@ -34,6 +36,19 @@ export class Game {
     this.accumulator = 0;
     this.fixedDt = 1 / 60;
     this.pendingMission = null;
+
+    // Fetch the rigged character library in the background. Levels built before
+    // it lands fall back to the blockout body, so play never waits on art.
+    this.characterReady = false;
+    loadCharacterLibrary()
+      .then((gltf) => {
+        setCharacterSource(gltf);
+        this.characterReady = true;
+        this.onCharacterLibraryReady?.(gltf);
+      })
+      .catch((err) => {
+        console.warn('[game] character library unavailable, using blockout bodies:', err.message);
+      });
 
     this.renderer = new Renderer(canvas);
     this.audio = new AudioEngine();
