@@ -58,6 +58,22 @@ export class Renderer {
     this.ambient = new THREE.AmbientLight(0xffffff, 0.22);
     this.scene.add(this.ambient);
 
+    // ---------------------------------------------------------- view model
+    // The first-person arms and weapon live in their own scene, drawn after the
+    // world with the depth buffer cleared. Two reasons: the rig sits ~20 cm from
+    // the eye and would be shredded by the world's 0.05 near plane, and this
+    // scene needs its own tight fog/lighting so the weapon never sits in
+    // silhouette against a bright sky.
+    this.viewScene = new THREE.Scene();
+    this.viewKey = new THREE.DirectionalLight(0xfff1d6, 1.55);
+    this.viewKey.position.set(0.45, 1.0, 0.35);
+    this.viewScene.add(this.viewKey);
+    this.viewFill = new THREE.HemisphereLight(0xbcd2e8, 0x6b5738, 1.15);
+    this.viewScene.add(this.viewFill);
+    this.viewRim = new THREE.DirectionalLight(0xffd39a, 0.55);
+    this.viewRim.position.set(-0.6, 0.2, -0.9);
+    this.viewScene.add(this.viewRim);
+
     // Muzzle/point light pool for dynamic flashes
     this.flashLeft = 0;
 
@@ -285,6 +301,14 @@ export class Renderer {
     this.postMat.uniforms.uResolution.value.set(w, h);
   }
 
+  /** Attach the player's camera + arms + weapon to the view-model scene. */
+  bindViewModel(viewCam, viewRoot) {
+    this.viewCam = viewCam;
+    this.viewRoot = viewRoot;
+    if (viewCam && viewCam.parent !== this.viewScene) this.viewScene.add(viewCam);
+    if (viewRoot && viewRoot.parent !== this.viewScene) this.viewScene.add(viewRoot);
+  }
+
   render(dt, camOverride = null) {
     this.time += dt;
     if (this.headless) return;
@@ -313,6 +337,13 @@ export class Renderer {
     this.renderer.render(this.quadScene, this.quadCam);
     void pr;
 
+    // First-person arms and weapon, on top, with depth cleared so nothing in the
+    // world can poke through them.
+    if (this.viewCam && this.viewRoot) {
+      this.renderer.clearDepth();
+      this.renderer.render(this.viewScene, this.viewCam);
+    }
+
     if (this.shake.t > 0) {
       cam.position.x -= shakeOffset[0];
       cam.position.y -= shakeOffset[1];
@@ -320,14 +351,7 @@ export class Renderer {
     }
   }
 
-  /** Render the first-person view model on top with a separate near-camera to avoid clipping. */
-  renderViewModel(scene, viewCam) {
-    const ac = this.renderer.autoClear;
-    this.renderer.autoClear = false;
-    this.renderer.clearDepth();
-    this.renderer.render(scene, viewCam);
-    this.renderer.autoClear = ac;
-  }
+
 
   dispose() {
     this.rt.dispose();

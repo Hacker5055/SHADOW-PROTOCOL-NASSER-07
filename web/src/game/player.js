@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { WeaponRuntime, WEAPONS } from './weapons.js';
+import { FirstPersonView, loadSoldierArmsFromGLB, ARM_STATE } from './viewmodel.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -65,10 +66,20 @@ export class Player {
     this.flashlight = false;
 
     this.viewCam = new THREE.PerspectiveCamera(80, 1, 0.02, 60);
-    this.weaponHolder = new THREE.Group();
-    this.viewCam.add(this.weaponHolder);
+    const eraOpt = opts.era || '1973';
 
-    const era = opts.era || '1973';
+    // First-person arms. Starts on the procedural block rig so the very first
+    // frame has hands, then swaps to the skinned soldier asset once it loads.
+    this.fpView = new FirstPersonView({ sleeveColor: eraOpt === '1973' ? 0x4a4a34 : 0x3d4033, gloveColor: 0x24251f });
+    this.weaponHolder = this.fpView.weaponMount;
+    // The arms and weapon are drawn by the renderer's dedicated view-model
+    // scene; the rig stays parented to the camera so its transforms are in view
+    // space (that is what GRIP_POINTS and ARM_POSES are authored against).
+    this.viewCam.add(this.fpView.root);
+    this.fpArmsReady = false;
+    this._loadSkinnedArms();
+
+    const era = eraOpt;
     this.era = era;
     this.weapons = [];
     this.weaponIndex = 0;
@@ -85,19 +96,60 @@ export class Player {
     this.viewCam.add(this.flashlightObj);
     this.flashlightObj.position.set(0.15, -0.1, 0);
 
+    // Hand the renderer its view-model scene contents. Without this the arms
+    // were never drawn at all — the camera was not part of any rendered graph.
+    if (game && game.renderer && game.renderer.bindViewModel) {
+      game.renderer.bindViewModel(this.viewCam, this.fpView.root);
+    }
+
     this.footstepSurface = 'sand';
     this.cameraShake = new THREE.Vector2();
     this.fovBase = 80;
     this.fovTarget = 80;
   }
 
-  attachViewModel() {
-    this.weaponHolder.position.set(0.17, -0.19, -0.32);
-    this.weaponHolder.rotation.set(0, -0.04, 0);
-    this.weaponHolder.scale.setScalar(1);
+  /**
+   * Swap the block arms for the skinned Soldier.glb arms when the asset is
+   * available. If the fetch or parse fails the procedural rig simply stays —
+   * the player still has hands, they are just lower fidelity.
+   */
+  async _loadSkinnedArms() {
+    try {
+      const arms = await loadSoldierArmsFromGLB('./models/Soldier.glb');
+      if (!arms || !arms.root) return;
+      // Rebuild the view around the real rig, preserving state.
+      const previous = this.fpView;
+      const view = new FirstPersonView({ arms });
+      view.state = previous.state;
+      view.blend = { ...previous.blend };
+      view.bobPhase = previous.bobPhase;
+      view.time = previous.time;
+      view.reloading = previous.reloading;
+      view.reloadT = previous.reloadT;
+      view.reloadDuration = previous.reloadDuration;
+
+      this.viewCam.remove(previous.root);
+      this.viewCam.add(view.root);
+      this.fpView = view;
+      this.weaponHolder = view.weaponMount;
+      if (this.game && this.game.renderer && this.game.renderer.bindViewModel) {
+        this.game.renderer.bindViewModel(this.viewCam, view.root);
+      }
+      // Re-parent the equipped weapon into the new hand mount.
+      this._equipWeapon(this.weaponIndex, true);
+      this.fpArmsReady = true;
+    } catch (err) {
+      // Not fatal: the procedural rig remains in use.
+      console.warn('[viewmodel] skinned arms unavailable, using procedural rig:', err.message);
+    }
   }
 
-  _equipWeapon(index) {
+  /** Kept for callers that used to nudge the holder; the view owns placement now. */
+  attachViewModel() {
+    if (this.weaponHolder) this.weaponHolder.scale.setScalar(1);
+  }
+
+  _equipWeapon(index, remount = false) {
     if (index < 0 || index >= this.weapons.length) return;
     if (this.weapon) this.weaponHolder.remove(this.weapon.model);
     this.weaponIndex = index;
@@ -105,6 +157,23 @@ export class Player {
     this.weaponHolder.add(this.weapon.model);
     this.weapon.model.position.set(0, 0, 0);
     this.weapon.model.rotation.set(0, 0, 0);
+    if (remount) this._alignWeaponToHand();
+  }
+
+  /**
+   * The rifle model is authored muzzle-toward -Z around the origin. On the
+   * skinned hand mount it has to be pushed forward into the palm and rolled so
+   * the grip lands between the fingers.
+   */
+  _alignWeaponToHand() {
+    if (!this.weapon) return;
+    if (this.fpView && this.fpView.isSkinned) {
+      this.weapon.model.position.set(0, -0.012, -0.05);
+      this.weapon.model.rotation.set(0, Math.PI, 0);
+    } else {
+      this.weapon.model.position.set(0, 0, 0);
+      this.weapon.model.rotation.set(0, 0, 0);
+    }
   }
 
   swapWeapon() {
@@ -379,6 +448,7 @@ export class Player {
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.2);
     this.meleeCooldown = Math.max(0, this.meleeCooldown - dt);
     this.swapT = Math.max(0, (this.swapT || 0) - dt);
+    this._updateEjectedMags(dt);
 
     // night vision
     if (input.pressed('nightVision') && this.hasNVG) {
@@ -408,11 +478,15 @@ export class Player {
       if (w.reloading) { /* no fire while reloading */ }
       else if (w.def.auto || input.pressed('fire')) {
         if (w.canFire()) this._shoot();
-        else if (w.empty && input.pressed('fire')) { g.audio.dryFire(); w.startReload() && g.audio.reload(); }
+        else if (w.empty && input.pressed('fire')) {
+          g.audio.dryFire();
+          if (w.startReload()) { this._beginReloadVisual(w); g.audio.reload(); }
+        }
       }
     }
     // reload
     if ((input.pressed('reload') || (w.empty && input.pressed('fire'))) && w.startReload()) {
+      this._beginReloadVisual(w);
       g.audio.reload();
       g.hud.showPrompt(this.era === '1973' ? 'إعادة تلقيم' : 'RELOADING', 0.9);
     }
@@ -478,30 +552,86 @@ export class Player {
     this.yaw += w.recoil.x * dt * 12;
     this.pitch = clamp(this.pitch, -89 * DEG, 89 * DEG);
 
-    // viewmodel pose
-    const aimBlend = this.adsT;
-    const swayData = w.viewOffset(moving, this.aiming, g.time);
-    const hipX = 0.17, hipY = -0.19, hipZ = -0.32;
-    const adsX = 0, adsY = -0.115, adsZ = -0.26;
-    const runBobX = Math.sin(this.bobT) * 0.012 * Math.min(1, moving / 4);
-    const runBobY = Math.abs(Math.cos(this.bobT)) * 0.014 * Math.min(1, moving / 4);
-    const breathing = Math.sin(g.time * 1.35) * 0.0035;
+    // ---------------------------------------------------------- viewmodel
+    // The arms are driven entirely by the view model: it owns the state
+    // machine, the Ik solve onto the rifle and the reload timeline. Keeping the
+    // per-frame placement here too is what used to make the weapon and the hands
+    // disagree about where the rifle was.
+    this.fpView.update(dt, {
+      speed: moving,
+      aiming: this.aiming && !this.sprinting,
+      empty: w.empty,
+      sprinting: this.sprinting,
+      crouch: this.crouchT || 0
+    });
 
-    this.weaponHolder.position.set(
-      lerp(hipX, adsX, aimBlend) + swayData.x + runBobX * (1 - aimBlend),
-      lerp(hipY, adsY, aimBlend) + swayData.y + runBobY * (1 - aimBlend) + breathing,
-      lerp(hipZ, adsZ, aimBlend)
-    );
-    const sprintPose = this.sprinting ? 1 : 0;
-    this.weaponHolder.rotation.set(
-      lerp(-0.03 + swayData.rotX, 0, aimBlend) + sprintPose * 0.35,
-      lerp(-0.04, 0, aimBlend) + sprintPose * 0.55,
-      lerp(0.02 + swayData.rotZ, 0, aimBlend) + sprintPose * 0.28
-    );
-    this.weaponHolder.position.y -= (this.swapT || 0) * 0.5;
+    for (const ev of this.fpView.consumeEvents()) this._onViewEvent(ev);
+  }
 
-    // suppression affects viewmodel
-    this.weaponHolder.position.y -= this.suppression * 0.01;
+  /** Simple ballistic fall for ejected magazines, then removal. */
+  _updateEjectedMags(dt) {
+    if (!this.ejectedMags || !this.ejectedMags.length) return;
+    for (let i = this.ejectedMags.length - 1; i >= 0; i--) {
+      const m = this.ejectedMags[i];
+      m.vel.y -= 9.8 * dt;
+      m.mesh.position.addScaledVector(m.vel, dt);
+      m.mesh.rotation.x += dt * 6;
+      m.mesh.rotation.z += dt * 3.5;
+      m.life -= dt;
+      if (m.life <= 0 || m.mesh.position.y < -2) {
+        this.game.scene.remove(m.mesh);
+        m.mesh.geometry.dispose();
+        this.ejectedMags.splice(i, 1);
+      }
+    }
+  }
+
+  /** Kick the visual reload timeline to match the weapon's own timer. */
+  _beginReloadVisual(w) {
+    const duration = (w.def.reloadTime || 2.4);
+    this.fpView.startReload(duration);
+  }
+
+  /**
+   * Reload beats, fired by the view model as the timeline crosses each phase.
+   * Audio keys off these, so the magazine sound happens when the magazine is
+   * actually out instead of on a fixed setTimeout that drifts.
+   */
+  _onViewEvent(ev) {
+    const g = this.game;
+    if (!g || !g.audio) return;
+    switch (ev.type) {
+      case 'mag-out':
+        g.audio.magOut();
+        this._ejectMagazine();
+        break;
+      case 'mag-in':
+        g.audio.magIn();
+        break;
+      case 'bolt':
+        g.audio.boltRelease();
+        break;
+      case 'ready':
+        g.hud.showPrompt(this.era === '1973' ? 'جاهز' : 'READY', 0.5);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Drop the old magazine: a prop that falls and is cleaned up by the level. */
+  _ejectMagazine() {
+    if (!this.game || !this.game.scene) return;
+    const mag = new THREE.Mesh(
+      new THREE.BoxGeometry(0.045, 0.19, 0.075),
+      new THREE.MeshStandardMaterial({ color: 0x1c1e20, roughness: 0.6, metalness: 0.4 })
+    );
+    const start = new THREE.Vector3();
+    this.weaponHolder.getWorldPosition(start);
+    mag.position.copy(start);
+    this.game.scene.add(mag);
+    this.ejectedMags = this.ejectedMags || [];
+    this.ejectedMags.push({ mesh: mag, vel: new THREE.Vector3(0, -0.6, 0), life: 6 });
   }
 
   _forward() {

@@ -439,6 +439,13 @@ export class Game {
     this.menu.update(dtRaw);
   }
 
+  /**
+   * The world scene. Gameplay code adds level props (ejected magazines, impact
+   * decals, dropped gear) here; keeping a named accessor stops callers reaching
+   * into `renderer.scene` and silently creating props on an undefined object.
+   */
+  get scene() { return this.renderer.scene; }
+
   step(dt) {
     this.time += dt;
     this.accumulator += dt;

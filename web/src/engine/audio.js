@@ -213,6 +213,25 @@ export class AudioEngine {
     setTimeout(() => this._tone(420, 0.05, { gain: 0.14, type: 'square' }), 330);
   }
   dryFire() { this._tone(1400, 0.03, { gain: 0.12, type: 'square' }); }
+
+  // ---------------------------------------------------------------- reload beats
+  // One method per mechanical event so the view model's reload timeline can key
+  // each sound to the frame the part actually moves.
+  magOut() {
+    this._noise(0.05, { gain: 0.20, type: 'bandpass', freq: 3400, q: 5 });
+    this._tone(300, 0.06, { gain: 0.10, type: 'square', slide: 180 });
+  }
+  magIn() {
+    this._noise(0.04, { gain: 0.24, type: 'bandpass', freq: 2100, q: 3 });
+    this._tone(260, 0.05, { gain: 0.12, type: 'square', slide: 340 });
+  }
+  boltRelease() {
+    this._noise(0.05, { gain: 0.26, type: 'bandpass', freq: 1400, q: 2 });
+    this._tone(520, 0.07, { gain: 0.13, type: 'square', slide: 900 });
+  }
+  weaponSwap() {
+    this._noise(0.09, { gain: 0.16, type: 'lowpass', freq: 1200 });
+  }
   explosion(pos) {
     this._noise(1.2, { gain: 0.9, type: 'lowpass', freq: 420, pos });
     this._tone(48, 0.9, { gain: 0.85, type: 'sine', slide: 22, pos, attack: 0.01 });

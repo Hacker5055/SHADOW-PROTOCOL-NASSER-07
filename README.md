@@ -15,7 +15,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | Path | What it is | Status |
 |---|---|---|
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
-| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission* and 03 *The Black File* (Cairo hub + rooftop ambush), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 41 automated checks passing |
+| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission* and 03 *The Black File* (Cairo hub + rooftop ambush), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 53 automated checks passing |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
 | `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 
@@ -84,8 +84,14 @@ cd web && npm run build && npm run preview
    strongpoint, five objectives, two intelligence documents, checkpoints, and the HUD.
 
 What that range is: a **playable test range** built from engine primitives. It proves the
-systems work together. It is *not* shipping art — there are no meshes, materials, animations,
-audio or cinematics in the project yet (see `docs/03_TECHNICAL_ARCHITECTURE.md` §11).
+systems work together. It is *not* shipping art — apart from one downloaded, MIT-licensed
+soldier mesh used for the first-person arms, there are no authored meshes, materials, audio
+or cinematics in the project yet (see `docs/03_TECHNICAL_ARCHITECTURE.md` §11).
+
+First-person animation is real and measured, not implied: the arms are IK-solved onto the
+rifle every frame, so the hands stay within 0 mm of the grips across idle/walk/run/ADS/
+crouch/fire/reload, and the reload is a phased timeline that emits `mag-out → mag-in → bolt →
+ready` (see `docs/03_TECHNICAL_ARCHITECTURE.md` §12.1).
 
 The front end (`USPMenuSubsystem`, `ASPMainMenuController`, `USPMenuWidget`) implements New Campaign,
 Continue, Chapter Selection, Settings, Credits and Exit as real actions. Chapter buttons are
@@ -125,8 +131,8 @@ out of the top floor — with one branching decision that persists into the fina
 `docs/04_ROADMAP.md` tracks the ten milestones from the brief against what is actually
 implemented. Nothing is marked complete unless it is playable or compilable.
 
-- **M1 — vertical slice:** done and verified (`web/`, 41 automated checks passing across
-  Chapters 01–03).
+- **M1 — vertical slice:** done and verified (`web/`, 53 automated checks passing across
+  Chapters 01–03, plus measured first-person animation).
 - **M2 — UE5 project skeleton:** done at source level; **not compiled**.
 - **M3 — Chapter 01 blockout:** next; the procedural graybox range is the starting point.
 
@@ -135,7 +141,10 @@ implemented. Nothing is marked complete unless it is playable or compilable.
 Listed so nobody has to discover it the hard way:
 
 1. No compiled Unreal build — the C++ has never seen a compiler.
-2. No authored levels, meshes, materials, animations or UMG widget Blueprints.
+2. No authored levels, meshes, materials or UMG widget Blueprints. The only shipped mesh is
+   `web/public/models/Soldier.glb` (MIT, from three.js) driving the first-person arms.
+   **Third-person character animation is not done** — the character gait is still a single
+   sine term, death is a single rotation snap, and crouch/mantle have no character animation.
 3. No audio assets: VO, weapons, ambience and music are specified in
    `docs/05_AUDIO_AND_VO.md` but not produced.
 4. No cinematics or Level Sequences.

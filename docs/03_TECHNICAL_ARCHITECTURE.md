@@ -207,6 +207,87 @@ Full bindings: `Config/DefaultInput.ini`.
 
 ---
 
+## 12.1 First-person view model (browser slice)
+
+The slice renders first-person arms and the weapon in a dedicated view-model scene, drawn
+after the world with the depth buffer cleared. This section exists because the previous
+state of this subsystem was a real defect, not a polish gap: `viewCam` was parented to
+nothing and `renderViewModel()` was never called, so **no weapon and no hands were ever
+drawn** in any chapter.
+
+### Rendering path
+
+- `Renderer.viewScene` — separate `THREE.Scene` with three lights (key/fill/rim).
+- `Renderer.bindViewModel(viewCam, viewRoot)` — parents the camera and the arm root into it.
+- `Renderer.render()` — after the post pass, `clearDepth()` then renders `viewScene` with
+  `viewCam`. A separate scene means the arms are not eaten by the world's 0.05 m near plane
+  and cannot be shaded by fog intended for 200 m of desert.
+- Regression test: *"The first-person view model is actually attached to a rendered scene"*.
+
+### Rig
+
+`FirstPersonView` owns everything and is headless-testable (`update(dt, ctx)` touches no
+renderer). Two interchangeable rigs behind one interface:
+
+| Rig | Source | When |
+|---|---|---|
+| `skinned` | `web/public/models/Soldier.glb` — arm triangles filtered out of the Mixamo body, skin weights preserved and renormalised | shipped path |
+| `procedural` | six rigid-skinned tapered segments | first frames, and fallback if the glTF fails |
+
+The arm filter is **weight-based**, not position-based: a triangle is kept if at least two
+of its corners are majority-weighted to an arm bone. Measured on the shipped asset:
+7325 → 2377 arm vertices, 11186 → 3621 triangles, 31 bones kept, all weights summing to 1.
+
+### Why IK rather than authored arm angles
+
+Hand-authored Euler angles per clip (8 poses × 4 joints × 2 arms) drift off the weapon the
+moment the rifle recoils, which is exactly what makes first-person arms read as floating.
+Instead the *weapon* is authored and the arms are derived:
+
+1. `ARM_POSES` gives the weapon's position/rotation per stance, in view space.
+2. `GRIP_POINTS` gives the right hand (pistol grip) and left hand (handguard) in weapon space.
+3. `solveTwoBone()` does an analytic two-bone solve from each shoulder to its grip, with a
+   pole vector choosing the elbow plane.
+4. `_aimBone()` rotates each segment onto the solved direction; `_orientHand()` rolls the
+   palm onto the grip and `_curlFingers()` closes the fingers.
+
+Both rigs are normalised to `ARM_REACH` (0.585 m shoulder-to-wrist) on construction, so the
+elbow has a visible bend at rifle-grip distances on either rig. Measured: hands land within
+**0.0 mm** of the grips in idle/walk/run/ADS/crouch/fire/reload, with 42° idle and 55° ADS
+elbow bend on the procedural rig, 52°/66° on the skinned rig.
+
+### Reload timeline
+
+`RELOAD_PHASES` is the single source of truth for the reload; each phase emits one event
+that `player.js` consumes:
+
+| Phase | At | Event | Effect |
+|---|---|---|---|
+| `grip` | 0.00 | — | support hand leaves the handguard |
+| `eject` | 0.16 | `mag-out` | `audio.magOut()`, magazine prop ejected and falls |
+| `insert` | 0.42 | `mag-in` | `audio.magIn()` |
+| `seat` | 0.62 | `bolt` | `audio.boltRelease()` |
+| `shoulder` | 0.82 | `ready` | HUD prompt |
+| `done` | 1.00 | — | back to `idle` |
+
+Audio keys off these events rather than `setTimeout`, so the sound happens on the frame the
+part actually moves. Verified order at 2.4 s: `mag-out@0.38 mag-in@1.00 bolt@1.48 ready@1.97`,
+with the support hand travelling 18.5 cm.
+
+### Asset provenance
+
+`Soldier.glb` comes from `mrdoob/three.js` (`examples/models/gltf/`), MIT-licensed;
+`web/public/models/LICENSE-three.js.txt` ships alongside it and must not be removed.
+
+### Known gaps in this subsystem
+
+- Third-person character gait is still the single `Math.sin(t) * speed * 0.11` term in
+  `models.js`. Deferred by explicit scope decision, **not** fixed.
+- Death, crouch and mantle have no character animation.
+- The Unreal side has no AnimBP; this browser implementation is not a port target.
+
+---
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -226,5 +307,6 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/save.js` — checkpoint + campaign state | `USPSaveGame`, `USPProgressSubsystem` | UE persists to slot files + config |
 | `ui/menu.js`, `ui/hud.js` | `USPHUDWidget`, `USPPauseMenuWidget` | UE HUD data model is C++; layout is UMG |
 | `engine/physics.js` — collider push-out | engine `UCharacterMovementComponent` collision | Not reimplemented |
+| `game/viewmodel.js` — inverted-pendulum-free two-bone IK arms, weapon pose tracks, reload timeline | `USPAnimInstance` + AnimMontage (not authored) | The slice solves arms analytically; UE would use AnimBPs, so this is **not** a port target — see §12.1 |
 | `levels/chapter03.js` + `libCairo.js` — Cairo hub | objective rows in `Content/Data/DT_Objectives.csv`; mission spec in `Tools/build_mission_assets.py`; **no UE level yet** | Content parity for the design, not for the build |
-| `tools/simtest.mjs` — 41 checks (4 missions) | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |
+| `tools/simtest.mjs` — 53 checks (4 missions + view model) | none yet | **Gap**: no automation framework in the UE tree beyond the header checker |

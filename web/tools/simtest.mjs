@@ -696,6 +696,295 @@ check('Chapter 03 forensics desk opens a real, solvable case and awards intel', 
   return `${caseData.conflicts} conflicts proven · intel recorded · world resumed`;
 });
 
+// ---------------------------------------------------------------- view model
+check('The first-person view model is actually attached to a rendered scene', () => {
+  // This used to be false for every chapter: viewCam was parented to nothing and
+  // renderViewModel() was never called, so the player had no visible weapon or
+  // hands at all no matter how good the animation was. A rig that is not in a
+  // rendered graph is invisible, so assert the wiring itself.
+  game.startMission('ch01_crossing');
+  game.state = 'playing';
+  const r = game.renderer;
+  const p = game.player;
+  if (!r.viewScene) throw new Error('renderer has no view-model scene');
+  if (p.viewCam.parent !== r.viewScene) throw new Error('view camera is not in the view-model scene');
+  if (p.fpView.root.parent !== r.viewScene) throw new Error('arms are not in the view-model scene');
+  if (p.fpView.weaponMount.parent !== p.fpView.root) throw new Error('weapon mount is not under the view root');
+  if (p.weapon.model.parent !== p.fpView.weaponMount) throw new Error('equipped weapon is not on the mount');
+  const lights = r.viewScene.children.filter((c) => c.isLight).length;
+  if (lights < 2) throw new Error(`view-model scene has ${lights} lights — the arms would render black`);
+  let meshes = 0;
+  p.fpView.root.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) meshes++; });
+  if (meshes < 4) throw new Error(`only ${meshes} meshes under the view root`);
+  return `${meshes} meshes · ${lights} lights · depth-cleared pass`;
+});
+
+check('Reloading via the real player timeline ejects a falling magazine', () => {
+  game.startMission('ch01_crossing');
+  game.state = 'playing';
+  const p = game.player;
+  for (let i = 0; i < 30; i++) simulate(game, 1 / 60, { force: true });
+
+  p.ejectedMags = [];
+  if (!p.fpView.startReload(2.0)) throw new Error('reload did not start');
+
+  // Sample while it is in flight — the prop is deliberately cleaned up once it
+  // lands below the world, so reading the array after the loop proves nothing.
+  let peakCount = 0;
+  let highest = -Infinity;
+  let lowest = Infinity;
+  let sawInScene = false;
+  for (let i = 0; i < 60 * 1.2; i++) {
+    simulate(game, 1 / 60, { force: true });
+    peakCount = Math.max(peakCount, p.ejectedMags.length);
+    for (const m of p.ejectedMags) {
+      highest = Math.max(highest, m.mesh.position.y);
+      lowest = Math.min(lowest, m.mesh.position.y);
+      if (m.mesh.parent === game.scene) sawInScene = true;
+    }
+  }
+  if (peakCount === 0) throw new Error('no magazine was ejected');
+  if (!sawInScene) throw new Error('ejected magazine was never added to the world scene');
+  if (!(highest - lowest > 0.4)) throw new Error(`magazine fell only ${(highest - lowest).toFixed(2)} m`);
+
+  // ... and it must eventually be reclaimed instead of leaking into the scene.
+  for (let i = 0; i < 60 * 3; i++) simulate(game, 1 / 60, { force: true });
+  if (p.ejectedMags.length !== 0) throw new Error('ejected magazine was never cleaned up');
+  return `ejected · fell ${(highest - lowest).toFixed(2)} m · reclaimed`;
+});
+
+// ---------------------------------------------------------------- view model
+check('The first-person view model is actually attached to a rendered scene', () => {
+  // This used to be false for every chapter: viewCam was parented to nothing and
+  // renderViewModel() was never called, so the player had no visible weapon or
+  // hands at all no matter how good the animation was. A rig that is not in a
+  // rendered graph is invisible, so assert the wiring itself.
+  game.startMission('ch01_crossing');
+  game.state = 'playing';
+  const r = game.renderer;
+  const p = game.player;
+  if (!r.viewScene) throw new Error('renderer has no view-model scene');
+  if (p.viewCam.parent !== r.viewScene) throw new Error('view camera is not in the view-model scene');
+  if (p.fpView.root.parent !== r.viewScene) throw new Error('arms are not in the view-model scene');
+  if (p.fpView.weaponMount.parent !== p.fpView.root) throw new Error('weapon mount is not under the view root');
+  if (p.weapon.model.parent !== p.fpView.weaponMount) throw new Error('equipped weapon is not on the mount');
+  const lights = r.viewScene.children.filter((c) => c.isLight).length;
+  if (lights < 2) throw new Error(`view-model scene has ${lights} lights — the arms would render black`);
+  let meshes = 0;
+  p.fpView.root.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) meshes++; });
+  if (meshes < 4) throw new Error(`only ${meshes} meshes under the view root`);
+  return `${meshes} meshes · ${lights} lights · depth-cleared pass`;
+});
+
+// The animation work is only worth anything if it is measurable, so these
+// checks assert the properties that actually make first-person arms look
+// attached: hands on the grips, a bent elbow, a real reload timeline with
+// ordered events, and a fire kick that settles. Tolerances are in centimetres.
+
+const vmMod = await import('../src/game/viewmodel.js');
+const THREE = await import('three');
+
+/** Reusable measurement harness over either rig. */
+function makeViewModelProbe(view) {
+  const measureSide = (side) => {
+    view.root.parent = null;
+    view.root.updateMatrixWorld(true);
+    const c = view.chain[side];
+    const P = (b) => new THREE.Vector3().setFromMatrixPosition(b.matrixWorld);
+    const hand = view.handViewPosition(side);
+    const grip = view.gripViewPosition(side);
+    const a = P(c.upper); const b = P(c.fore); const d = P(c.hand);
+    const elbowDeg = THREE.MathUtils.radToDeg(a.clone().sub(b).angleTo(d.clone().sub(b)));
+    return { err: hand.distanceTo(grip), elbowDeg };
+  };
+  return { measureSide };
+}
+
+check('First-person arms are skinned meshes, not static props', () => {
+  const view = new vmMod.FirstPersonView();
+  view.root.updateMatrixWorld(true);
+  let skinned = 0; let bones = 0;
+  view.rig.root.traverse((o) => { if (o.isSkinnedMesh) skinned++; if (o.isBone) bones++; });
+  if (skinned < 4) throw new Error(`expected a segmented skinned armature, found ${skinned} skinned meshes`);
+  if (bones < 8) throw new Error(`expected both arm chains, found ${bones} bones`);
+  return `${skinned} skinned segments · ${bones} bones · ${view.rigKind} rig`;
+});
+
+check('Both hands stay locked to the weapon through every stance', () => {
+  const view = new vmMod.FirstPersonView();
+  const { measureSide } = makeViewModelProbe(view);
+  const samples = [];
+  const run = (label, ctx, frames) => {
+    for (let i = 0; i < frames; i++) view.update(1 / 60, ctx);
+    const r = measureSide('right'); const l = measureSide('left');
+    if (r.err > 0.015 || l.err > 0.015) {
+      throw new Error(`${label}: hand ${(Math.max(r.err, l.err) * 100).toFixed(2)} cm off the grip`);
+    }
+    samples.push(`${label} ${(Math.max(r.err, l.err) * 1000).toFixed(1)}mm`);
+  };
+  run('idle', { speed: 0 }, 60);
+  run('walk', { speed: 2 }, 60);
+  run('run', { speed: 5 }, 60);
+  run('ads', { speed: 0, aiming: true }, 60);
+  run('crouch', { speed: 0, crouch: 1 }, 60);
+  view.addFireKick(1);
+  run('fire', { speed: 0 }, 6);
+  return samples.join(' · ');
+});
+
+check('Elbows bend: the arms are not planks pushed at the camera', () => {
+  const view = new vmMod.FirstPersonView();
+  const { measureSide } = makeViewModelProbe(view);
+  for (let i = 0; i < 60; i++) view.update(1 / 60, { speed: 0 });
+  const idle = measureSide('right');
+  if (idle.elbowDeg > 150) throw new Error(`idle elbow is ${idle.elbowDeg.toFixed(0)}° — arm is fully extended`);
+  if (idle.elbowDeg < 20) throw new Error(`idle elbow is ${idle.elbowDeg.toFixed(0)}° — arm is folded shut`);
+  for (let i = 0; i < 60; i++) view.update(1 / 60, { aiming: true });
+  const ads = measureSide('right');
+  if (ads.elbowDeg > 150) throw new Error(`ADS elbow is ${ads.elbowDeg.toFixed(0)}° — support hand cannot be on the handguard`);
+  return `idle ${idle.elbowDeg.toFixed(0)}° · ads ${ads.elbowDeg.toFixed(0)}°`;
+});
+
+check('Reload is a phased timeline that emits ordered mechanical events', () => {
+  const view = new vmMod.FirstPersonView();
+  for (let i = 0; i < 30; i++) view.update(1 / 60, {});
+  view.consumeEvents();
+  if (!view.startReload(2.4)) throw new Error('reload did not start');
+  if (view.startReload(2.4)) throw new Error('a second reload started while one was running');
+
+  const seen = [];
+  let statesDuringReload = new Set();
+  for (let i = 0; i < 60 * 3; i++) {
+    view.update(1 / 60, {});
+    statesDuringReload.add(view.state);
+    for (const ev of view.consumeEvents()) seen.push(ev.type);
+  }
+  const want = ['mag-out', 'mag-in', 'bolt', 'ready'];
+  if (seen.join(',') !== want.join(',')) throw new Error(`events were ${seen.join(' → ') || 'missing'}`);
+  if (view.reloading) throw new Error('reload never finished');
+  if (view.state === 'reload') throw new Error('state stuck on reload');
+  const g = view.pose.holder;
+  if (!Number.isFinite(g.x)) throw new Error('weapon position went non-finite');
+  return `${seen.join(' → ')} in 2.4 s · ended ${view.state}`;
+});
+
+check('Reload beats land in the right order and the magazine leaves the gun', () => {
+  const view = new vmMod.FirstPersonView();
+  for (let i = 0; i < 30; i++) view.update(1 / 60, {});
+  view.startReload(2.4);
+  const times = {};
+  const positions = [];
+  for (let i = 0; i < 60 * 3; i++) {
+    view.update(1 / 60, {});
+    if (i % 6 === 0) {
+      const p = view.handViewPosition('left');
+      positions.push([p.x, p.y, p.z]);
+    }
+    for (const ev of view.consumeEvents()) times[ev.type] = (i / 60);
+  }
+  const order = ['mag-out', 'mag-in', 'bolt', 'ready'];
+  for (let i = 1; i < order.length; i++) {
+    if (!(times[order[i]] > times[order[i - 1]])) {
+      throw new Error(`${order[i - 1]} and ${order[i]} did not happen in sequence`);
+    }
+  }
+  const travel = Math.max(...positions.map((p) => Math.hypot(p[0] - positions[0][0], p[1] - positions[0][1], p[2] - positions[0][2])));
+  if (travel < 0.02) throw new Error('the support hand barely moved — reload is not animated');
+  return `${order.map((k) => `${k}@${times[k].toFixed(2)}s`).join(' ')} · support hand travelled ${(travel * 100).toFixed(1)} cm`;
+});
+
+check('Firing kicks the weapon back and settles without oscillation', () => {
+  // Two identical views: one fires, one does not. Comparing against a twin
+  // removes the stance change that a shot also causes, so what is measured is
+  // purely the recoil impulse.
+  const fired = new vmMod.FirstPersonView();
+  const still = new vmMod.FirstPersonView();
+  for (let i = 0; i < 60; i++) { fired.update(1 / 60, {}); still.update(1 / 60, {}); }
+  fired.addFireKick(1);
+  fired.update(1 / 60, {}); still.update(1 / 60, {});
+  const rest = still.weaponMount.position.z;
+  const kicked = fired.weaponMount.position.z;
+  if (!(kicked > rest + 0.005)) throw new Error(`recoil does not push the weapon back (${kicked.toFixed(3)} vs ${rest.toFixed(3)})`);
+  let monotonic = true; let prev = kicked - rest;
+  for (let i = 0; i < 60; i++) {
+    fired.update(1 / 60, {}); still.update(1 / 60, {});
+    const d = fired.weaponMount.position.z - still.weaponMount.position.z;
+    if (d > prev + 1e-6) monotonic = false;
+    prev = d;
+  }
+  if (!monotonic) throw new Error('recoil overshoots back outward — it should recover monotonically');
+  if (Math.abs(prev) > 0.002) throw new Error(`recoil never returned to rest (${(prev * 1000).toFixed(1)} mm)`);
+  return `kick ${((kicked - rest) * 100).toFixed(1)} cm · settled to ${(prev * 1000).toFixed(1)} mm`;
+});
+
+check('Weapon and hands share one frame — the rifle cannot drift off the arms', () => {
+  const view = new vmMod.FirstPersonView();
+  for (let i = 0; i < 120; i++) view.update(1 / 60, { speed: 3.5 });
+  const wpos = new THREE.Vector3();
+  view.weaponMount.getWorldPosition(wpos);
+  const right = view.handViewPosition('right');
+  const d = wpos.distanceTo(right);
+  if (d > 0.35) throw new Error(`weapon is ${(d * 100).toFixed(0)} cm from the trigger hand`);
+  // The mount must be a child of the same view root as the arms.
+  if (view.weaponMount.parent !== view.root || view.rig.root.parent !== view.root) {
+    throw new Error('weapon and arms are not siblings under the view root');
+  }
+  return `mounted under one view root · ${(d * 100).toFixed(1)} cm apart`;
+});
+
+// Load the shipped asset through the real glTF path. Textures fail to decode in
+// Node (no ImageBitmap) and warn; geometry and skin weights are unaffected.
+globalThis.self = globalThis;
+// The DOM stub has no User-Agent, and GLTFLoader sniffs for Safari to choose an
+// image path. Give it a plausible one; textures fail in Node either way.
+if (!globalThis.navigator) globalThis.navigator = {};
+if (!globalThis.navigator.userAgent) globalThis.navigator.userAgent = 'node';
+const gltfLib = await import('three/examples/jsm/loaders/GLTFLoader.js');
+const { readFileSync } = await import('node:fs');
+const glbBuf = readFileSync(new URL('../public/models/Soldier.glb', import.meta.url));
+const glbArr = glbBuf.buffer.slice(glbBuf.byteOffset, glbBuf.byteOffset + glbBuf.byteLength);
+const gltfDoc = await new Promise((res, rej) => new gltfLib.GLTFLoader().parse(glbArr, '', res, rej));
+const skinnedArms = vmMod.soldierToFirstPersonArms(gltfDoc.scene);
+
+check('Soldier.glb converts to a usable first-person arm rig', () => {
+  const st = skinnedArms.stats;
+  if (st.armTriangles < 1000) throw new Error(`only ${st.armTriangles} arm triangles survived`);
+  if (st.keptBones < 20) throw new Error(`only ${st.keptBones} arm bones kept`);
+  // Every vertex must still be fully weighted, or the sleeve tears off the arm.
+  const w = skinnedArms.mesh.geometry.attributes.skinWeight;
+  let bad = 0;
+  for (let i = 0; i < w.count; i++) {
+    const sum = w.getX(i) + w.getY(i) + w.getZ(i) + w.getW(i);
+    if (Math.abs(sum - 1) > 1e-3) bad++;
+  }
+  if (bad) throw new Error(`${bad}/${w.count} vertices have broken skin weights`);
+  return `${st.armVertices} arm verts · ${st.armTriangles} tris · ${st.keptBones} bones · weights clean`;
+});
+
+check('The skinned arms drive onto the rifle exactly like the procedural rig', () => {
+  const view = new vmMod.FirstPersonView({ arms: skinnedArms });
+  if (!view.isSkinned) throw new Error('view did not accept the skinned rig');
+  const { measureSide } = makeViewModelProbe(view);
+  const rows = [];
+  const run = (label, ctx, frames) => {
+    for (let i = 0; i < frames; i++) view.update(1 / 60, ctx);
+    const r = measureSide('right'); const l = measureSide('left');
+    const err = Math.max(r.err, l.err);
+    if (err > 0.02) throw new Error(`${label}: hands ${(err * 100).toFixed(1)} cm off the grips`);
+    if (r.elbowDeg > 150) throw new Error(`${label}: trigger-arm elbow is ${r.elbowDeg.toFixed(0)}°`);
+    rows.push(`${label} ${(err * 1000).toFixed(1)}mm/${l.elbowDeg.toFixed(0)}°`);
+  };
+  run('idle', { speed: 0 }, 40);
+  run('run', { speed: 5 }, 40);
+  run('ads', { speed: 0, aiming: true }, 40);
+  view.startReload(2.4);
+  run('reload', { speed: 0 }, 40);
+  // The rig must have been scaled into metres, not left in centimetres.
+  const scale = view.rig.root.scale.x;
+  if (scale <= 0 || scale > 2) throw new Error(`rig scale is ${scale} — expected a metric scale`);
+  return `${rows.join(' · ')} · scale ${scale.toFixed(3)}`;
+});
+
 const passed = results.filter((r) => r.ok).length;
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n=== ${passed} passed, ${failed} failed ===\n`);
