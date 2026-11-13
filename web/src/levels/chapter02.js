@@ -254,6 +254,17 @@ export function buildSilentMission(game, world) {
     if (state.roofTriggered) return;
     state.roofTriggered = true;
     mission.completeObjectiveByText('Escort the hostages');
+    // SAVED_MARIAM is one of the four flags the ending resolver reads. Nothing
+    // ever wrote it, so CLEAN HANDS was unreachable no matter how the chapter
+    // was played. Mariam is hostage 0 and is recorded only if she reached the
+    // roof with the player.
+    const mariam = hostages[0];
+    const mariamSafe = !!mariam && Math.hypot(mariam.pos.x - game.player.pos.x, mariam.pos.z - game.player.pos.z) < 24;
+    game.save?.setProgress?.((p) => {
+      p.flags = p.flags || {};
+      p.flags.SAVED_MARIAM = mariamSafe;
+    });
+    if (mariamSafe) game.hud.feed('MARIAM FAHMY — ON THE ROOF', 'squad');
     mission.checkpoint();
     game.audio.setTension(0.8);
     game.hud.say({

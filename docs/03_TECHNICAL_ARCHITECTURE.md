@@ -463,6 +463,39 @@ from the yard by flood-fill before any of it is called done.
 - The ambush is lethal but not adaptive — a fixed eight-attacker assault rather than a
   reaction to how the player has played the previous four chapters.
 
+## 12.5 Chapter 06 — Facility Mizan (browser slice)
+
+`levels/chapter06.js` + `levels/libMizan.js`. A salt flat above, four descending rings
+below: Security, Records, Habitat, Core.
+
+**The sealed-box bug.** `addRingChamber()` originally drew four solid walls. Four rings
+of solid walls is four closed boxes, so the entire bunker below the entrance was
+unreachable — the player could walk the ramp, reach the Security trigger, and then hit a
+wall. It looked completely normal in a top-down render and from inside the corridor. The
+fix is that the chamber builder takes `openings: [{ side, width }]` and cuts a doorway
+with a lintel over it.
+
+This is the third geometry bug in the project with the same shape (chapter 04's railings,
+chapter 04's storeroom, chapter 06's rings): **a level that renders correctly and cannot
+be walked**. All three are now caught by flood-fill tests that assert every waypoint is
+in the same connected component as the spawn, and `addRingChamber`'s signature makes the
+omission explicit rather than silent.
+
+**The mantrap** is a real timing puzzle, not a door that opens on a trigger:
+`chain` = outer door opens, six-second window, the player must cross the vestibule, and
+the inner door only opens once the outer has shut. Failing it re-arms the cycle rather
+than softlocking.
+
+**The Curator scene** is a 22-second conversation driven by the same sim-time queue as
+chapter 05, ending with Zidan's arrival and the chapter's final decision. `ZIDAN_STATE`
+takes one of `exposed` / `arrested` / `dead`.
+
+### Known limitations in this chapter
+
+- Habitat is one room rather than the inhabited town the design calls for.
+- The vent-shaft and service-tunnel entrances are landmarks, not routes.
+- Archive shelving is cover but not destructible cover.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -478,6 +511,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `game/forensics.js` — UV ink analysis minigame (domain logic, headlessly tested) | none yet | UE: implement as a UMG widget over the same rule set; no C++ counterpart written |
 | `levels/chapter04.js` + `libVienna.js` — semi-open Vienna streets, view-cone surveillance | none yet | UE: authored `L_Chapter04_Vienna`, navmesh instead of `steer()`, and the courier photography as a tagged-camera volume check |
 | `levels/chapter05.js` + `libDanube.js` — safehouse, timed recoveries, scripted squad death | none yet | UE: `ASPTimedObjectiveActor` over `game.time` equivalents; the sim-time queue is the pattern to port, not `SetTimer` with wall-clock semantics |
+| `levels/chapter06.js` + `libMizan.js` — descending bunker rings, mantrap timing, tripwires | none yet | UE: authored `L_Chapter06_Mizan`; the mantrap becomes a state machine on an actor, and tripwires become trigger volumes with a crouch-height check |
 | `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
 | `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |

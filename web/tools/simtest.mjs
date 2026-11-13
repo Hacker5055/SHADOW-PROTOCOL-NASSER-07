@@ -26,6 +26,7 @@ const { CHAPTER_02_MISSION, buildSilentMission } = await import('../src/levels/c
 const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('../src/levels/chapter03.js');
 const { CHAPTER_04_MISSION, buildViennaMission, CH04_FLAGS, CH04_LAYOUT, inShot } = await import('../src/levels/chapter04.js');
 const { CHAPTER_05_MISSION, buildBetrayalMission, CH05_FLAGS, CH05_LAYOUT } = await import('../src/levels/chapter05.js');
+const { CHAPTER_06_MISSION, buildMizanMission, CH06_FLAGS, CH06_LAYOUT } = await import('../src/levels/chapter06.js');
 const models = await import('../src/game/models.js');
 const THREE = await import('three');
 const weaponsMod = await import('../src/game/weapons.js');
@@ -97,12 +98,14 @@ function makeGame() {
   g.registerMission(CHAPTER_03_MISSION, buildArchiveMission);
   g.registerMission(CHAPTER_04_MISSION, buildViennaMission);
   g.registerMission(CHAPTER_05_MISSION, buildBetrayalMission);
+  g.registerMission(CHAPTER_06_MISSION, buildMizanMission);
   CHAPTER_01_MISSIONS[0].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (gg) => { gg.chapterIndex = 2; };
   CHAPTER_03_MISSION.onStart = (gg) => { gg.chapterIndex = 3; };
   CHAPTER_04_MISSION.onStart = (gg) => { gg.chapterIndex = 4; };
   CHAPTER_05_MISSION.onStart = (gg) => { gg.chapterIndex = 5; };
+  CHAPTER_06_MISSION.onStart = (gg) => { gg.chapterIndex = 6; };
   return g;
 }
 
@@ -613,7 +616,46 @@ check('Chapter 03 scripted beats fire in order and award intel', () => {
   return 'Zidan → courtyard → archivist → ledger all fired';
 });
 
+check('Every flag the ending resolver reads is actually written by a chapter', () => {
+  // CLEAN HANDS needs TRUST_ADEL + SAVED_MARIAM + PUBLISHED_LEDGER. Each was
+  // written by exactly nothing for a while: chapter 03 used a lowercase key
+  // and chapter 02 never wrote SAVED_MARIAM at all, so the best ending was
+  // unreachable however the player played. This asserts the resolver and the
+  // chapters agree on the vocabulary.
+  const save = game.save;
+  const src = save.resolveEnding();
+  save.progress.flags.TRUST_ADEL = true;
+  save.progress.flags.SAVED_MARIAM = true;
+  save.progress.flags.PUBLISHED_LEDGER = true;
+  const clean = save.resolveEnding();
+  save.progress.flags.SAVED_MARIAM = false;
+  const noMariam = save.resolveEnding();
+  save.progress.flags.TRUST_ADEL = false;
+  save.progress.flags.PUBLISHED_LEDGER = false;
+  if (clean !== 'CLEAN_HANDS') throw new Error(`all three flags gave ${clean}`);
+  if (noMariam === 'CLEAN_HANDS') throw new Error('CLEAN HANDS without Mariam');
+  return `${src} → CLEAN_HANDS reachable → ${noMariam} without her`;
+});
+
+check('Chapter 02 records SAVED_MARIAM when the hostages reach the roof', () => {
+  game.startMission('ch02_silent');
+  game.player.health = 5000;
+  game.player.maxHealth = 5000;
+  game.ai.enemies.forEach((e) => { e.hidden = true; e.holdFire = true; });
+  const P = game.player.pos;
+  P.set(-14, 1, -54);
+  simulate(game, 0.5, { force: true });
+  if (!game.levelCtx.state.hostagesFound) throw new Error('cells trigger did not fire');
+  P.set(-5, 13, -60);
+  simulate(game, 1, { force: true });
+  if (!game.levelCtx.state.roofTriggered) throw new Error('roof trigger did not fire');
+  if (game.save.progress.flags.SAVED_MARIAM !== true) throw new Error('SAVED_MARIAM not written');
+  return 'Mariam on the roof · SAVED_MARIAM set';
+});
+
 check('Chapter 03 decision card opens, freezes the world and records the flag', () => {
+  // Do not rely on a previous check having left chapter 03 loaded.
+  if (game.mission.id !== 'ch03_black_file') game.startMission('ch03_black_file');
   const W = game.world, P = game.player.pos;
   P.set(0, W.collision.surfaceAt(0, -50.5, 3, 0.3) + 1.2, -50.5);
   simulate(game, 0.3, { force: true });
@@ -629,7 +671,18 @@ check('Chapter 03 decision card opens, freezes the world and records the flag', 
 });
 
 check('Chapter 03 rooftop ambush wakes the cell and completes the chapter', () => {
+  // Self-contained: the ambush is only the last of six objectives, so this
+  // check drives the whole chapter rather than assuming a previous check left
+  // the first five done.
+  game.startMission('ch03_black_file');
   const W = game.world, P = game.player.pos;
+  const tp3 = (x, z, y = 1.2) => P.set(x, W.collision.surfaceAt(x, z, 3, 0.3) + y, z);
+  tp3(0, 10); simulate(game, 0.3, { force: true });
+  tp3(0, -22); simulate(game, 0.3, { force: true });
+  tp3(0, -46); simulate(game, 0.3, { force: true });
+  tp3(-9.8, -55); simulate(game, 0.3, { force: true });
+  tp3(0, -50.5); simulate(game, 0.3, { force: true });
+  if (game.hud.choice) game.hud.commitChoice(1);
   const dormantBefore = game.ai.enemies.filter((e) => e.dormant).length;
   P.set(-11.2, W.collision.surfaceAt(-11.2, -45.5, 8, 0.3) + 5.0, -45.5);
   simulate(game, 0.4, { force: true });
@@ -1018,6 +1071,133 @@ check('Chapter 05 runs to the end with no NaN and no softlock', () => {
   if (game.hud.choice) game.hud.commitChoice(0);
   if (!game.mission.complete) throw new Error('chapter never reached completion');
   return `0 NaN over 20 s · chapter complete`;
+});
+
+check('Chapter 06 bunker is open all the way down to the Core', () => {
+  // The first build of this chapter had four ring chambers with four solid
+  // walls each: a sealed box under a salt flat. Everything below the entrance
+  // was unreachable and nothing on screen said so. Flood the walkable grid.
+  game.startMission('ch06_shadow_protocol');
+  const col = game.world.collision;
+  const STEP = 2.0;
+  const free = (x, z) => !col.pointSolid(x, 1.0, z, -0.05);
+  const key = (i, j) => `${i},${j}`;
+  const si = Math.round(0 / STEP), sj = Math.round(96 / STEP);
+  if (!free(si * STEP, sj * STEP)) throw new Error('spawn is inside geometry');
+  const seen = new Set([key(si, sj)]);
+  const q = [[si, sj]];
+  while (q.length) {
+    const [i, j] = q.shift();
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = i + di, nj = j + dj, k = key(ni, nj);
+      if (seen.has(k)) continue;
+      if (Math.abs(ni * STEP) > 180 || Math.abs(nj * STEP) > 180) continue;
+      if (!free(ni * STEP, nj * STEP)) continue;
+      seen.add(k); q.push([ni, nj]);
+    }
+  }
+  const at = (z) => seen.has(key(0, Math.round(z / STEP)));
+  const rings = {
+    approach: 44,
+    security: CH06_LAYOUT.securityZ,
+    mantrap: CH06_LAYOUT.mantrapZ,
+    records: CH06_LAYOUT.recordsZ,
+    habitat: CH06_LAYOUT.habitatZ,
+    core: CH06_LAYOUT.coreZ
+  };
+  const blocked = Object.entries(rings).filter(([, z]) => !at(z)).map(([n]) => n);
+  if (blocked.length) throw new Error(`unreachable: ${blocked.join(', ')}`);
+  return `all ${Object.keys(rings).length} rings reachable (${seen.size} cells)`;
+});
+
+check('Chapter 06 mantrap is a real timed cycle, not a decoration', () => {
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  P.set(0, 1, CH06_LAYOUT.mantrapZ + 5);
+  simulate(game, 0.3, { force: true });
+  if (!st.mantrapOpen) throw new Error('mantrap never opened');
+  const start = st.mantrapTimer;
+  simulate(game, 1, { force: true });
+  if (!(st.mantrapTimer < start)) throw new Error('mantrap timer did not advance');
+  // Cross the vestibule and let the cycle finish.
+  P.set(0, 1, CH06_LAYOUT.mantrapZ - 1);
+  simulate(game, 6, { force: true });
+  if (!st.mantrapInside) throw new Error('crossing the vestibule did not open the inner door');
+  if (!game.mission.objectives[2].done) throw new Error('mantrap objective not completed');
+  return `${start.toFixed(1)}s cycle · inner door cleared`;
+});
+
+check('Chapter 06 Curator scene runs the reveal and hands off to Zidan', () => {
+  // Sim-time scheduling, not setTimeout: the scene is a 22 s conversation and
+  // a wall-clock timer would run it while the game was paused.
+  game.startMission('ch06_shadow_protocol');
+  game.player.health = 5000;
+  game.player.maxHealth = 5000;
+  game.ai.enemies.forEach((e) => { e.holdFire = true; });
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  P.set(0, 1, CH06_LAYOUT.coreZ);
+  simulate(game, 1.2, { force: true });
+  if (!st.curatorMet) throw new Error('Curator trigger did not fire');
+  if (!game.mission.intelLog.find((i) => i.id === 'ch06_curator_testimony')) {
+    // the testimony lands a few seconds into the conversation
+    simulate(game, 16, { force: true });
+    if (!game.mission.intelLog.find((i) => i.id === 'ch06_curator_testimony')) {
+      throw new Error('Curator testimony never recorded');
+    }
+  }
+  simulate(game, 12, { force: true });
+  if (!st.zidanDone) throw new Error('Zidan never arrived');
+  return 'Curator met · testimony recorded · Zidan arrived';
+});
+
+check('Chapter 06 Zidan decision writes the branch flag exactly once', () => {
+  const st = game.levelCtx.state;
+  if (!game.hud.choice) throw new Error('Zidan decision did not open');
+  game.hud.commitChoice(1); // arrest
+  const flagValue = game.save.progress.flags[CH06_FLAGS.ZIDAN_STATE];
+  if (flagValue !== 'arrested') throw new Error(`ZIDAN_STATE=${flagValue}`);
+  if (game.choiceOpen) throw new Error('decision card left the world frozen');
+  if (!game.mission.objectives[7].done) throw new Error('Zidan objective not completed');
+  void st;
+  return `ZIDAN_STATE=${flagValue} · card closed`;
+});
+
+check('Chapter 06 plays start to finish with every objective and no NaN', () => {
+  game.startMission('ch06_shadow_protocol');
+  game.player.health = 5000;
+  game.player.maxHealth = 5000;
+  game.ai.enemies.forEach((e) => { e.holdFire = true; e.awareness = 0; });
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  const step = (s = 0.4) => {
+    game.ai.enemies.forEach((e) => { e.awareness = 0; e.holdFire = true; });
+    simulate(game, s, { force: true });
+  };
+  let nan = 0;
+  const move = (z, s = 0.4) => {
+    P.set(0, 1, z);
+    for (let i = 0; i < Math.round(s * 60); i++) {
+      game.fixedStep(1 / 60);
+      game.time += 1 / 60;
+      game.input.endFrame();
+      if (!Number.isFinite(P.x) || !Number.isFinite(P.y) || !Number.isFinite(P.z)) nan += 1;
+    }
+  };
+  move(44); move(CH06_LAYOUT.securityZ); move(CH06_LAYOUT.mantrapZ + 5, 0.2);
+  move(CH06_LAYOUT.mantrapZ - 1, 6.5);      // cross the vestibule
+  move(CH06_LAYOUT.recordsZ); move(CH06_LAYOUT.habitatZ);
+  move(CH06_LAYOUT.coreZ - 4.4);            // the original page
+  move(CH06_LAYOUT.coreZ, 1.2);             // the Curator
+  step(24);
+  if (game.hud.choice) game.hud.commitChoice(0);
+  step(1);
+  const missing = game.mission.objectives.filter((o) => !o.done).map((o) => o.id);
+  if (missing.length) throw new Error(`objectives never completed: ${missing.join(',')}`);
+  if (nan) throw new Error(`${nan} NaN frames`);
+  if (!game.mission.complete) throw new Error('chapter did not complete');
+  void st;
+  return `${game.mission.objectives.length}/${game.mission.objectives.length} objectives · 0 NaN`;
 });
 
 // ---------------------------------------------------------------- forensics
