@@ -123,17 +123,34 @@ Exit criteria: cutscenes can be skipped, paused and subtitled without desync.
 
 ---
 
-## M9 — Chapters 04–06 **[ ]**
+## M9 — Chapters 04–06 **[~]**
 
 - Chapter 04: semi-open city district + vehicle pursuit
+  - **Done in the browser slice:** the 340 x 260 m canal district, street grid, market hall,
+    metro entrance, hotel, three couriers photographed through a real view-cone + LOS check,
+    and three optional objectives that each move a flag. **Outstanding:** the vehicle pursuit
+    and the rooftop routes.
 - Chapter 05: ambush, traitor reveal, branching survival
+  - **Done:** safehouse, ninety-second ambush, an over-subscribed recovery window that cannot
+    be completed in full, scripted squad loss, and the MOUSE decision writing `TRUST_ADEL`.
+    **Outstanding:** the metro-tunnel interior and the flash-forward epilogue.
 - Chapter 06: underground facility, the reveal, squad fate
+  - **Done:** all four rings, the six-second mantrap, the Records firefight, the Curator scene,
+    the duplicate-page reveal, and the Zidan decision writing `ZIDAN_STATE`.
+    **Outstanding:** Habitat as an inhabited town rather than one room.
 
 ---
 
-## M10 — Chapter 07, endings & ship **[ ]**
+## M10 — Chapter 07, endings & ship **[~]**
 
 - Chapter 07: three endings (Clean Hands / The Ledger / Inheritance) + secret epilogue (The Quiet Choice)
+  - **Done in the browser slice:** the harbour approach, four playable floors (12 / 27 / 41 / 54 m)
+    climbed by a working lift, per-floor sleeping garrisons, the rooftop confrontation branching on
+    `ZIDAN_STATE`, the ledger decision (publish / leverage / burn) writing exactly one flag, all
+    three endings reachable and mutually exclusive, the 1973 coda gated on all 21 documents, archive
+    box 07-B as the sequel hook, and an ending card in the debrief.
+  - **Outstanding:** the tower is lift-only (no stair route, no exterior climb), each floor is a
+    single arena room, and Zidan / the Curator are speakers rather than fightable actors.
 - Save/load, chapter select, New Game Plus carrying documents and unlocks
 - Graphics settings matrix, frame-time budget, load times, crash sweep
 - Localisation pass, accessibility pass, final QC

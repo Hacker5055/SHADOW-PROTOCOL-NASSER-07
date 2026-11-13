@@ -162,11 +162,25 @@ export class SaveSystem {
   }
 
   /** Determine the ending for the campaign based on tracked flags. */
+  /**
+   * The ending the player has earned so far. Chapter 07 writes exactly one of
+   * PUBLISHED_LEDGER / LEVERAGED_LEDGER / BURNED_LEDGER, and each of the three
+   * endings now has a decision that reaches it — a decision flag nothing reads
+   * is decoration, and an ending no sequence of choices can reach is dead copy.
+   */
   resolveEnding() {
     const f = this.progress.flags;
     const deaths = this.progress.casualties || 0;
+    // Publish, and the whole campaign's other choices stay clean with you.
     if (f.TRUST_ADEL && f.SAVED_MARIAM && f.PUBLISHED_LEDGER) return 'CLEAN_HANDS';
-    if (!f.PUBLISHED_LEDGER && f.SPARED_CURATOR && deaths < 2) return 'THE_LEDGER';
+    if (f.BURNED_LEDGER) return 'INHERITANCE';
+    // Keeping it is the Curator's ending whether or not he is still alive.
+    if (f.LEVERAGED_LEDGER) return 'THE_LEDGER';
+    // Published, but without the two alliances that would have made it clean:
+    // the record goes out and Nasser is still the man who carried it.
+    if (f.PUBLISHED_LEDGER) return 'THE_LEDGER';
+    // Saves from before chapter 07 existed.
+    if (f.SPARED_CURATOR && deaths < 2) return 'THE_LEDGER';
     return 'INHERITANCE';
   }
 

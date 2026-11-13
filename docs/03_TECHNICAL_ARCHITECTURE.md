@@ -496,6 +496,66 @@ takes one of `exposed` / `arrested` / `dead`.
 - The vent-shaft and service-tunnel entrances are landmarks, not routes.
 - Archive shelving is cover but not destructible cover.
 
+## 12.6 Chapter 07 — Meridian Tower (browser slice)
+
+`levels/chapter07.js` + `levels/libTower.js`. Alexandria harbour at pre-dawn, then a
+four-floor ascent of a 54 m tower, a confrontation on the roof and the campaign's final
+decision. The chapter exists to cash three cheques the previous six wrote: the ledger,
+`ZIDAN_STATE`, and the ending resolver.
+
+**The lift.** The engine's `STEP_HEIGHT` is 0.45 m and a floor is ~13 m up, so there is no
+honest stair route; the tower is climbed by a lift. That makes the ride the chapter's only
+piece of level-transition machinery, and it is deliberately scripted rather than physical:
+press → 0.5 s → teleport into the destination floor's lobby → 2.4 s → doors open and that
+floor's garrison wakes. The player never sees the move because they are inside a sealed car.
+
+**Three geometry bugs, one shape.** The first build placed a separate lift-lobby building
+*on the quay, in front of the tower*, and derived each floor's height from its index
+(`floor × 3.6`). Riding to floor 12 therefore arrived in mid-air outside the tower
+footprint, and the player fell 12 m to the ground floor. The second build put the roof
+inside a sealed 3.2 m parapet room, with the helipad sunk behind it; the third put ten
+defenders at offsets beyond the plate's 26 m depth, so they stood in the void outside the
+north wall. All three render beautifully. All three are now caught by tests:
+
+- a per-floor flood-fill from the lift arrival (`Chapter 07 tower is a real vertical route`),
+- a spawn placement audit asserting every defender has floor under them and no collision
+  volume around them (`Chapter 07 defenders all stand on their own floor`),
+- and a lift test that asserts arrival height within 0.6 m of `CH07_LAYOUT.floorY[n]`.
+
+The lesson generalises to a rule: **derive vertical positions from absolute data, not from
+an index, and audit every spawn against the collision world rather than against a plot.**
+
+**Floor heights are absolute.** `CH07_LAYOUT.floorY = [0, 12.4, 27.6, 41.6, 54.6]`. The
+building's silhouette above the roof is a separate `addTower(..., baseY)` call, so the
+decorative tower can never intersect the interiors the player walks through.
+
+**Sleeping garrisons.** `AIDirector.spawnEnemies()` runs once inside `startMission()`; there
+is no late-spawn API. Every defender is therefore spawned up front with `hidden: true` and
+revealed by `wakeFloor()` when the doors open. Floor identity lives in the enemy **id**
+(`ch07_f<floor>_<n>`), because the `Enemy` constructor copies a fixed list of options and
+silently drops anything else — a `floor` spawn field is `undefined` by the time it matters.
+
+**The decision.** The ledger's three options write exactly one of `PUBLISHED_LEDGER`,
+`LEVERAGED_LEDGER`, `BURNED_LEDGER`, and `resolveEnding()` reads all three. Before this
+chapter, `PUBLISHED_LEDGER` had no writer at all — `CLEAN_HANDS` was unreachable — while
+`LEVERAGED_LEDGER` and `BURNED_LEDGER` were read by nothing. The resolver now maps publish
+→ `CLEAN_HANDS` (with `TRUST_ADEL` + `SAVED_MARIAM`), leverage → `THE_LEDGER`, burn →
+`INHERITANCE`, and publish without the two alliances → `THE_LEDGER`. A test walks all four.
+
+**The ending card.** `showDebrief()` previously offered "PROCEED TO NEXT CHAPTER" or a bare
+return to the menu, which for the final mission meant the campaign ended without ever
+displaying the ending copy that `endingCopy()` has carried since chapter 01. The debrief now
+branches on the registered definition's `chapterIndex >= 7` (the live `Mission` object does
+not carry it) and renders title, tone, Arabic title and English epilogue in place of the
+campaign-standing line.
+
+### Known limitations in this chapter
+
+- The tower is climbed only by lift. No stair route, no exterior climb, no rooftop descent.
+- Each floor is a single arena room, not a full floor plate with offices and corridors.
+- The atrium fight is horizontal on the balcony ring; there is no vertical flanking.
+- Zidan and the Curator appear as scene speakers only — neither is a fightable actor.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -512,6 +572,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `levels/chapter04.js` + `libVienna.js` — semi-open Vienna streets, view-cone surveillance | none yet | UE: authored `L_Chapter04_Vienna`, navmesh instead of `steer()`, and the courier photography as a tagged-camera volume check |
 | `levels/chapter05.js` + `libDanube.js` — safehouse, timed recoveries, scripted squad death | none yet | UE: `ASPTimedObjectiveActor` over `game.time` equivalents; the sim-time queue is the pattern to port, not `SetTimer` with wall-clock semantics |
 | `levels/chapter06.js` + `libMizan.js` — descending bunker rings, mantrap timing, tripwires | none yet | UE: authored `L_Chapter06_Mizan`; the mantrap becomes a state machine on an actor, and tripwires become trigger volumes with a crouch-height check |
+| `levels/chapter07.js` + `libTower.js` — harbour, lift ascent, sleeping per-floor garrisons | none yet | UE: authored `L_Chapter07_Meridian` with real `SetActorLocation` lift movement between world-partition cells, and each garrison spawned on a streaming trigger rather than hidden up front |
 | `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
 | `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |

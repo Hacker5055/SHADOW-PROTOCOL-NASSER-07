@@ -15,7 +15,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | Path | What it is | Status |
 |---|---|---|
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
-| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard) and 06 *Shadow Protocol* (desert bunker), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 84 automated checks passing |
+| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard), 06 *Shadow Protocol* (desert bunker) and 07 *The Final Legacy* (Alexandria tower + endings), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 92 automated checks passing |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
 | `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 
@@ -127,9 +127,18 @@ user-settings defaults. See `docs/03_TECHNICAL_ARCHITECTURE.md` §5.
 Three endings (`CLEAN HANDS`, `THE LEDGER`, `INHERITANCE`) are decided by four tracked
 campaign flags, plus a secret epilogue. See `docs/02_CHAPTERS.md`.
 
-Chapters 01–06 are playable in the browser slice. Chapter 03 is the hub chapter: a
+**All seven chapters are playable in the browser slice.** Chapter 03 is the hub chapter: a
 Cairo intelligence directorate you walk through, read, and then have to fight your way
 out of the top floor — with one branching decision that persists into the finale.
+
+Chapter 07, *The Final Legacy*, closes it. A pre-dawn harbour approach in Alexandria, then
+Meridian Tower — four playable floors stacked at absolute heights (12 / 27 / 41 / 54 m)
+and climbed by a working lift, each floor a different arena: a server hall of rack aisles,
+an eight-storey atrium fought around a void, an executive boardroom, and an open roof with
+the helipad. Whoever is standing on the pad depends on Chapter 06: Zidan if he lived, the
+Curator if he did not. The ledger decision — **publish / leverage / burn** — is the last
+branch in the campaign and the one that produces the ending card, with the 1973 coda only
+if all 21 documents were found, and archive box **07-B** as the sequel hook.
 
 Chapter 06, *Shadow Protocol*, is the campaign's narrative core: a 1960s Soviet-built
 bunker 60 m under a Western Desert salt flat, four descending rings, a mantrap that is a
@@ -158,9 +167,9 @@ flag. KONSUL's ending fork writes `KONSUL_ALIVE` or `KONSUL_DEAD` for Chapter 06
 `docs/04_ROADMAP.md` tracks the ten milestones from the brief against what is actually
 implemented. Nothing is marked complete unless it is playable or compilable.
 
-- **M1 — vertical slice:** done and verified (`web/`, 84 automated checks passing across
-  Chapters 01–04, including a flood-fill proof that the chapter 04 streets are
-  connected, not merely drawn).
+- **M1 — vertical slice:** done and verified (`web/`, 92 automated checks passing across
+  Chapters 01–07, including flood-fill proofs that the chapter 04 streets, the chapter 06
+  bunker and every chapter 07 floor are connected, not merely drawn).
 - **M2 — UE5 project skeleton:** done at source level; **not compiled**.
 - **M3 — Chapter 01 blockout:** next; the procedural graybox range is the starting point.
 
@@ -178,11 +187,14 @@ Listed so nobody has to discover it the hard way:
 3. No audio assets: VO, weapons, ambience and music are specified in
    `docs/05_AUDIO_AND_VO.md` but not produced.
 4. No cinematics or Level Sequences.
-5. Chapters 04–06 are playable; **Chapter 07 exists as design** (docs + data schema),
-   not as playable content. Chapter 04's vehicle pursuit and rooftop routes are not
-   built — the five infiltration approaches are street-level only. Chapter 05 has the
-   safehouse, the ambush and the timed recoveries, but not the metro-tunnel interior or
-   the flash-forward epilogue. Chapter 06 has all four rings and the Curator, but the
-   Habitat ring is a single room rather than the lived-in town the design describes.
+5. Chapters 01–07 are playable, but thinner than the design documents. Chapter 04's
+   vehicle pursuit and rooftop routes are not built — the five infiltration approaches
+   are street-level only. Chapter 05 has the safehouse, the ambush and the timed
+   recoveries, but not the metro-tunnel interior or the flash-forward epilogue. Chapter 06
+   has all four rings and the Curator, but the Habitat ring is a single room rather than
+   the lived-in town the design describes. Chapter 07 has the harbour, all four floors,
+   the roof confrontation, the ledger decision and the ending card, but the tower is
+   climbed only by lift — there is no stair route, no exterior climb, and the floors are
+   single-room arenas rather than full floor plates.
 6. Chapter 03's interview dialogue wheel and faction suspicion meter are design only. The hub,
    the branching decision, the forensics minigame and the rooftop ambush are all real.

@@ -27,6 +27,7 @@ const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('..
 const { CHAPTER_04_MISSION, buildViennaMission, CH04_FLAGS, CH04_LAYOUT, inShot } = await import('../src/levels/chapter04.js');
 const { CHAPTER_05_MISSION, buildBetrayalMission, CH05_FLAGS, CH05_LAYOUT } = await import('../src/levels/chapter05.js');
 const { CHAPTER_06_MISSION, buildMizanMission, CH06_FLAGS, CH06_LAYOUT } = await import('../src/levels/chapter06.js');
+const { CHAPTER_07_MISSION, buildLegacyMission, CH07_FLAGS, CH07_LAYOUT } = await import('../src/levels/chapter07.js');
 const models = await import('../src/game/models.js');
 const THREE = await import('three');
 const weaponsMod = await import('../src/game/weapons.js');
@@ -99,6 +100,7 @@ function makeGame() {
   g.registerMission(CHAPTER_04_MISSION, buildViennaMission);
   g.registerMission(CHAPTER_05_MISSION, buildBetrayalMission);
   g.registerMission(CHAPTER_06_MISSION, buildMizanMission);
+  g.registerMission(CHAPTER_07_MISSION, buildLegacyMission);
   CHAPTER_01_MISSIONS[0].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_01_MISSIONS[1].onStart = (gg) => { gg.chapterIndex = 1; };
   CHAPTER_02_MISSION.onStart = (gg) => { gg.chapterIndex = 2; };
@@ -1739,6 +1741,247 @@ check('The skinned arms drive onto the rifle exactly like the procedural rig', (
   const scale = view.rig.root.scale.x;
   if (scale <= 0 || scale > 2) throw new Error(`rig scale is ${scale} — expected a metric scale`);
   return `${rows.join(' · ')} · scale ${scale.toFixed(3)}`;
+});
+
+// ---------------------------------------------------------------- chapter 07
+check('Chapter 07 tower is a real vertical route, not four floating boxes', () => {
+  // Chapter 07's first build put the lift lobby on the quay OUTSIDE the tower
+  // footprint and derived the floor heights from a floor index. Riding to floor
+  // 12 arrived in mid-air over the water and the player fell 12 m. This floods
+  // each floor plate from its lift arrival and climbs the whole building.
+  game.startMission('ch07_final_legacy');
+  const col = game.world.collision;
+  const STEP = 0.5;
+  const yAt = (s) => CH07_LAYOUT.floorY[s];
+  const free = (x, y, z) => !col.pointSolid(x, y + 0.5, z, 0.28)
+    && Math.abs(col.surfaceAt(x, z, y + 0.5, 0.25) - y) < 0.6;
+  const flood = (sx, sz, s) => {
+    const y = yAt(s);
+    if (!free(sx, y, sz)) throw new Error(`floor ${s}: arrival point (${sx},${sz}) is inside geometry`);
+    const k = (i, j) => `${i},${j}`;
+    const i0 = Math.round(sx / STEP), j0 = Math.round(sz / STEP);
+    const seen = new Set([k(i0, j0)]);
+    const q = [[i0, j0]];
+    while (q.length) {
+      const [i, j] = q.shift();
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di, nj = j + dj, kk = k(ni, nj);
+        if (seen.has(kk)) continue;
+        if (Math.abs(ni * STEP) > 40 || Math.abs(nj * STEP - CH07_LAYOUT.towerZ) > 40) continue;
+        if (!free(ni * STEP, y, nj * STEP)) continue;
+        seen.add(kk); q.push([ni, nj]);
+      }
+    }
+    return seen;
+  };
+  const rows = [];
+  for (const s of [1, 2, 3, 4]) {
+    const seen = flood(0, CH07_LAYOUT.arriveZ, s);
+    const at = (x, z) => seen.has(`${Math.round(x / STEP)},${Math.round(z / STEP)}`);
+    const z0 = CH07_LAYOUT.towerZ;
+    const probes = {
+      'north end': at(0, z0 - 11),
+      'west corner': at(-15, z0 + 8),
+      'east corner': at(15, z0 + 8),
+      'south lobby': at(0, z0 + 9)
+    };
+    if (s === 4) probes.helipad = at(0, z0);
+    const bad = Object.entries(probes).filter(([, v]) => !v).map(([n]) => n);
+    if (bad.length) throw new Error(`floor ${s}: unreachable — ${bad.join(', ')}`);
+    rows.push(`f${s}:${seen.size}`);
+  }
+  // The quay, the lobby and the lift button are one connected ground plane.
+  const ground = flood(0, 20, 0);
+  const groundAt = (x, z) => ground.has(`${Math.round(x / STEP)},${Math.round(z / STEP)}`);
+  if (!groundAt(0, -14)) throw new Error('the lobby is not reachable from the quay');
+  if (!groundAt(3.4, 5.4)) throw new Error('the lift button is not reachable');
+  return `${rows.join(' · ')} · quay→lobby→lift connected`;
+});
+
+check('Chapter 07 defenders all stand on their own floor', () => {
+  // A render cannot tell you this: ten of these men were once standing in the
+  // void outside the north wall, because their offsets were measured past the
+  // 26 m depth of the plate. Every spawn must have floor underneath it and no
+  // collision volume around it.
+  game.startMission('ch07_final_legacy');
+  const col = game.world.collision;
+  const bad = [];
+  for (const e of game.ai.enemies) {
+    const solid = col.pointSolid(e.pos.x, e.pos.y + 0.6, e.pos.z, -0.1);
+    const support = col.surfaceAt(e.pos.x, e.pos.z, e.pos.y + 0.6, 0.2);
+    if (solid) bad.push(`${e.id} inside ${solid.tag}`);
+    else if (Math.abs(support - e.pos.y) > 0.45) bad.push(`${e.id} over air (support ${support.toFixed(2)})`);
+  }
+  if (bad.length) throw new Error(bad.slice(0, 4).join(' · '));
+  const byFloor = {};
+  for (const e of game.ai.enemies) {
+    const f = String(e.id).match(/^ch07_f(\d)/);
+    const k = f ? f[1] : '?';
+    byFloor[k] = (byFloor[k] || 0) + 1;
+  }
+  return `${game.ai.enemies.length} placed · ${Object.entries(byFloor).map(([k, v]) => `f${k}:${v}`).join(' ')}`;
+});
+
+check('Chapter 07 lift arrives at the stated floor and wakes its garrison', () => {
+  game.startMission('ch07_final_legacy');
+  const st = game.levelCtx.state;
+  const P = game.player.pos;
+  P.set(0, 0.1, 8);
+  simulate(game, 0.3, { force: true });
+  const rows = [];
+  for (let i = 1; i <= 4; i++) {
+    const before = game.ai.enemies.filter((e) => !e.hidden).length;
+    st.rideLift();
+    simulate(game, 3.2, { force: true });
+    const want = CH07_LAYOUT.floorY[i];
+    if (st.floor !== i) throw new Error(`ride ${i} left the car on floor ${st.floor}`);
+    if (Math.abs(P.y - want) > 0.6) throw new Error(`ride ${i} arrived at y=${P.y.toFixed(2)}, expected ${want}`);
+    if (!game.mission.objectives[i].done) throw new Error(`ride ${i} did not complete its objective`);
+    const after = game.ai.enemies.filter((e) => !e.hidden).length;
+    if (after <= before) throw new Error(`floor ${i} opened its doors on an empty floor`);
+    rows.push(`f${i} y=${P.y.toFixed(1)}+${after - before}`);
+  }
+  if (st.riding) throw new Error('the car never stopped riding');
+  return rows.join(' · ');
+});
+
+check('Chapter 07 ledger decision writes exactly one flag', () => {
+  const rows = [];
+  for (const [idx, want] of [[0, CH07_FLAGS.PUBLISHED_LEDGER], [1, CH07_FLAGS.LEVERAGED_LEDGER], [2, CH07_FLAGS.BURNED_LEDGER]]) {
+    game.save.progress.flags = {};
+    game.startMission('ch07_final_legacy');
+    const st = game.levelCtx.state;
+    st.floor = 4;
+    game.player.pos.set(0, CH07_LAYOUT.floorY[4] + 0.05, CH07_LAYOUT.towerZ + 1.0);
+    simulate(game, 0.4, { force: true });
+    const ledger = game.world.interactables.find((i) => i.id === 'ch07_ledger_read');
+    if (!ledger) throw new Error('the ledger is not in the world');
+    ledger.onUse();
+    if (!game.hud.choice) throw new Error(`choice ${idx} never opened`);
+    game.hud.commitChoice(idx);
+    const written = ['PUBLISHED_LEDGER', 'LEVERAGED_LEDGER', 'BURNED_LEDGER']
+      .filter((k) => game.save.progress.flags[k]);
+    if (written.length !== 1) throw new Error(`choice ${idx} wrote ${written.length} flags: ${written.join(',')}`);
+    if (!game.save.progress.flags[want]) throw new Error(`choice ${idx} did not write ${want}, wrote ${written[0]}`);
+    if (game.choiceOpen) throw new Error('the decision card left the world frozen');
+    rows.push(written[0].split('_')[0]);
+  }
+  return rows.join(' / ');
+});
+
+check('Chapter 07 roof antagonist follows the chapter 06 Zidan branch', () => {
+  const seen = [];
+  for (const [state, expectCurator] of [['dead', true], ['arrested', false], ['exposed', false]]) {
+    game.save.progress.flags = { ZIDAN_STATE: state };
+    game.startMission('ch07_final_legacy');
+    const st = game.levelCtx.state;
+    if (st.zidanState !== state) throw new Error(`ZIDAN_STATE=${state} did not reach the level (got ${st.zidanState})`);
+    const speaker = state === 'dead' || st.curatorSpared ? 'THE CURATOR' : 'GEN. ZIDAN';
+    const isCurator = speaker === 'THE CURATOR';
+    if (isCurator !== expectCurator) throw new Error(`ZIDAN_STATE=${state} put ${speaker} on the roof`);
+    seen.push(`${state}:${isCurator ? 'curator' : 'zidan'}`);
+  }
+  return seen.join(' · ');
+});
+
+check('Chapter 07 plays start to finish and the ending is reachable', () => {
+  const runOnce = (preset, choiceIdx) => {
+    game.save.progress.flags = { ...preset };
+    game.save.progress.intel = {};
+    game.startMission('ch07_final_legacy');
+    game.player.health = 5000;
+    game.player.maxHealth = 5000;
+    const st = game.levelCtx.state;
+    const P = game.player.pos;
+    let nan = 0;
+    const step = (s) => {
+      const n = Math.round(s * 60);
+      for (let i = 0; i < n; i++) {
+        game.fixedStep(1 / 60);
+        game.time += 1 / 60;
+        game.input.endFrame();
+        if (!Number.isFinite(P.x) || !Number.isFinite(P.y) || !Number.isFinite(P.z)) nan += 1;
+      }
+      game.ai.enemies.forEach((e) => { e.holdFire = true; e.awareness = 0; });
+    };
+    game.ai.enemies.forEach((e) => { e.holdFire = true; e.awareness = 0; });
+    P.set(0, 0.1, 20);
+    step(0.4);
+    P.set(0, 0.1, 8);
+    step(0.4);
+    for (let i = 0; i < 4; i++) {
+      st.rideLift();
+      step(3.2);
+    }
+    P.set(0, CH07_LAYOUT.floorY[4] + 0.05, CH07_LAYOUT.towerZ + 1.0);
+    step(0.5);
+    game.world.interactables.find((i) => i.id === 'ch07_ledger_read').onUse();
+    if (game.hud.choice) game.hud.commitChoice(choiceIdx);
+    step(18);
+    if (nan) throw new Error(`${nan} NaN frames`);
+    const missing = game.mission.objectives.filter((o) => !o.done).map((o) => o.id);
+    if (missing.length) throw new Error(`objectives never completed: ${missing.join(',')}`);
+    if (!game.mission.complete) throw new Error('chapter never completed');
+    return game.save.resolveEnding();
+  };
+
+  const published = runOnce({ TRUST_ADEL: true, SAVED_MARIAM: true }, 0);
+  const leveraged = runOnce({ TRUST_ADEL: true, SAVED_MARIAM: true }, 1);
+  const burned = runOnce({ TRUST_ADEL: true, SAVED_MARIAM: true }, 2);
+  const withoutMariam = runOnce({ TRUST_ADEL: true }, 0);
+  if (published !== 'CLEAN_HANDS') throw new Error(`publishing all the way through gave ${published}`);
+  if (leveraged !== 'THE_LEDGER') throw new Error(`keeping the ledger gave ${leveraged}`);
+  if (burned !== 'INHERITANCE') throw new Error(`burning it gave ${burned}`);
+  if (withoutMariam === 'CLEAN_HANDS') throw new Error('CLEAN HANDS without SAVED_MARIAM');
+  return `publish=${published} · leverage=${leveraged} · burn=${burned} · no-Mariam=${withoutMariam}`;
+});
+
+check('The chapter 07 debrief renders the ending instead of a dead end', () => {
+  // showDebrief() used to say "PROCEED TO NEXT CHAPTER" or nothing at all.
+  // For the last mission that means the player finishes the campaign and the
+  // three written endings are never displayed anywhere.
+  game.save.progress.flags = { TRUST_ADEL: true, SAVED_MARIAM: true };
+  game.startMission('ch07_final_legacy');
+  game.mission.completeObjective(0);
+  const html = (() => {
+    let captured = '';
+    const original = game.menu._openOverlay.bind(game.menu);
+    game.menu._openOverlay = (h) => { captured = h; };
+    game.menu.showDebrief(game.mission, {
+      kills: 12, headshots: 4, accuracy: 51, squadAlive: 2, squadTotal: 3,
+      time: 640, intel: { found: 3, total: 5 }
+    });
+    game.menu._openOverlay = original;
+    return captured;
+  })();
+  if (!html) throw new Error('the debrief rendered nothing');
+  if (!/ENDING —/.test(html)) throw new Error('no ending block in the final debrief');
+  const resolved = game.save.resolveEnding();
+  if (!new RegExp(resolved).test(html)) throw new Error(`the resolved ending (${resolved}) is not named`);
+  if (/PROCEED TO NEXT CHAPTER/.test(html)) throw new Error('the last chapter still offers a next chapter');
+  // Before the ledger is decided the projection is INHERITANCE; after
+  // publishing with both alliances it must read CLEAN HANDS.
+  const before = resolved;
+  game.save.progress.flags.PUBLISHED_LEDGER = true;
+  let after = '';
+  const orig = game.menu._openOverlay.bind(game.menu);
+  game.menu._openOverlay = (h) => { after = h; };
+  game.menu.showDebrief(game.mission, { kills: 0, headshots: 0, accuracy: 0, squadAlive: 3, squadTotal: 3, time: 1, intel: { found: 5, total: 5 } });
+  game.menu._openOverlay = orig;
+  if (!/CLEAN HANDS/.test(after)) throw new Error('publishing does not surface CLEAN HANDS in the debrief');
+  return `ending card: ${before} → CLEAN HANDS after publishing`;
+});
+
+check('Chapter 07 objective count matches its mission definition', () => {
+  // Seven objectives, one per act. A missing entry here is a chapter that
+  // cannot be completed; a spare one is a beat nobody can reach.
+  if (CHAPTER_07_MISSION.objectives.length !== 7) {
+    throw new Error(`expected 7 objectives, found ${CHAPTER_07_MISSION.objectives.length}`);
+  }
+  const ids = CHAPTER_07_MISSION.objectives.map((o) => o.id);
+  if (new Set(ids).size !== ids.length) throw new Error('duplicate objective ids');
+  if (ids[6] !== 'o_epilogue') throw new Error('the epilogue is not the last objective');
+  return `${ids.join(', ')}`;
 });
 
 const passed = results.filter((r) => r.ok).length;

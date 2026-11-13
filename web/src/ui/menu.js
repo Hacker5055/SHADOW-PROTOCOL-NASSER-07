@@ -486,6 +486,15 @@ export class Menu {
     const mins = Math.floor(stats.time / 60), secs = Math.floor(stats.time % 60);
     const next = this.nextMissionId();
     const ending = this.game.save.resolveEnding();
+    const copy = this.game.save.endingCopy(ending);
+    // The campaign's last mission gets an ending card, not a "next chapter"
+    // prompt. Without this, finishing chapter 07 drops the player back on the
+    // menu with the ending copy never shown — three written endings and no
+    // screen that displays them.
+    // `mission` is the live Mission object, which does not carry chapterIndex;
+    // the registered definition does.
+    const def = this.game.missions.get(mission.id)?.def;
+    const isFinal = (def?.chapterIndex || 0) >= 7;
     this._openOverlay(`
       <div class="eyebrow">CHAPTER COMPLETE</div>
       <h2>${mission.title.toUpperCase()}</h2>
@@ -499,10 +508,20 @@ export class Menu {
       </div>
       <div class="debrief-intel">INTELLIGENCE RECOVERED <b>${stats.intel.found} / ${stats.intel.total}</b>
         <div class="dot-line">${dots.join('')}</div></div>
+      ${isFinal ? `
+      <div class="debrief-intel" style="margin-top:22px;border-top:1px solid rgba(224,116,31,.3);padding-top:16px">
+        <div class="eyebrow" style="margin-bottom:8px">ENDING — ${copy.tone}</div>
+        <div style="font-size:22px;letter-spacing:.14em;color:#e0741f;margin-bottom:10px">${this.game.save.endingTitle(ending)}</div>
+        <div style="direction:rtl;font-family:'Noto Naskh Arabic',serif;font-size:18px;color:rgba(232,226,208,.72);margin-bottom:10px">${copy.ar}</div>
+        <div style="font-size:12px;line-height:1.9;color:rgba(232,226,208,.7);letter-spacing:.03em;max-width:640px">${copy.en}</div>
+        ${this.game.save.progress.flags.BOX_07B ? '<div style="margin-top:14px;font-size:11px;letter-spacing:.22em;color:#9fbb74">ARCHIVE BOX 07-B — UNRESOLVED</div>' : ''}
+      </div>` : `
       <div class="debrief-intel" style="margin-top:16px">CAMPAIGN STANDING — <b>${this.game.save.endingTitle(ending)}</b> is currently the projected ending.
-        ${this.game.save.progress.casualties ? `Permanent losses: <b>${this.game.save.progress.casualties}</b>.` : 'No permanent losses.'}</div>
+        ${this.game.save.progress.casualties ? `Permanent losses: <b>${this.game.save.progress.casualties}</b>.` : 'No permanent losses.'}</div>`}
       <div class="overlay-actions">
-        ${next ? '<div class="ovl-item" data-act="resume-campaign">PROCEED TO NEXT CHAPTER</div>' : '<div class="ovl-item" data-act="quit">RETURN TO MAIN MENU</div>'}
+        ${next
+          ? '<div class="ovl-item" data-act="resume-campaign">PROCEED TO NEXT CHAPTER</div>'
+          : `<div class="ovl-item" data-act="quit">${isFinal ? 'CLOSE THE FILE — MAIN MENU' : 'RETURN TO MAIN MENU'}</div>`}
         <div class="ovl-item" data-act="replay">REPLAY CHAPTER</div>
         <div class="ovl-item" data-act="dossier-after">CAMPAIGN DOSSIER</div>
         <div class="ovl-item" data-act="quit">MAIN MENU</div>
