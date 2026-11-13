@@ -267,9 +267,12 @@ mannequin into a soldier. Both inherit the animation for free.
 
 - The face is flat-shaded with no eyes or mouth; it reads correctly at gameplay
   distance and badly in a close-up. There is no facial rig.
-- Aiming does not yet offset the arms onto the weapon in third person; the rifle is
-  parented to the hand and follows it, so it swings with the idle cycle.
 - No IK foot planting, so steep slopes and stairs still slide.
+- Aiming is a whole-body blend, not an upper-body-layer split: the legs lose 15% of
+  their weight to the aim clip while a soldier is aiming, which is invisible at
+  walking speed and slightly softens a full sprint. A proper spine split (aim on
+  `DEF-spine003` and above only) is the fix and is not done.
+- The head does not turn to look where the weapon points; it inherits the aim clip.
 
 ---
 
@@ -344,6 +347,29 @@ with the support hand travelling 18.5 cm.
 
 `Soldier.glb` comes from `mrdoob/three.js` (`examples/models/gltf/`), MIT-licensed;
 `web/public/models/LICENSE-three.js.txt` ships alongside it and must not be removed.
+
+### Aiming
+
+`pose(t, speed, crouch, aim, dead)` takes an `aim` weight in `[0,1]` and layers the
+`Pistol_Aim_Neutral` clip on top of locomotion. This was previously a dead parameter:
+`state.aim = aim` was written and never read, so the hand moved 1 cm between `aim=0`
+and `aim=1` and enemies aimed with their arms hanging at their sides.
+
+Two details make it work:
+
+1. **Locomotion and aim are separate weight layers.** Locomotion weights are scaled by
+   `1 - aim * 0.85` so they still sum to 1 among themselves, and the aim clip rides on
+   top at `aim * 0.85`. Putting aim into the same sum robs the walk cycle of weight and
+   makes the legs stutter whenever anyone aims.
+2. **The weapon mount rotation is solved per aim weight, not fixed.** The hand bone's
+   frame is not aligned with the character's forward axis, and the wrist genuinely
+   rotates between the low-ready and aiming poses. A single constant offset cannot hold
+   the muzzle level: measured muzzle error across the blend was up to 57 degrees. The
+   offset is solved at aim 0 / 0.5 / 1 (X = 2.629 / 2.154 / 1.529 rad) and linearly
+   interpolated in `wristOffsetForAim()`. Result: muzzle within 0 degrees of forward at
+   all three sample points, worst case 13 degrees mid-run-cycle.
+
+Measured: right hand 0.92 m at `aim=0` → 1.31 m at `aim=1` (chest is 1.28 m).
 
 ### Known gaps in this subsystem
 

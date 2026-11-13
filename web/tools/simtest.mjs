@@ -25,6 +25,7 @@ const { CHAPTER_01_MISSIONS, buildCrossingMission, buildDepotMission } = await i
 const { CHAPTER_02_MISSION, buildSilentMission } = await import('../src/levels/chapter02.js');
 const { CHAPTER_03_MISSION, buildArchiveMission, CH03_FLAGS } = await import('../src/levels/chapter03.js');
 const models = await import('../src/game/models.js');
+const THREE = await import('three');
 const weaponsMod = await import('../src/game/weapons.js');
 globalThis.__SP_WEAPONS__ = weaponsMod;
 const intelMod = await import('../src/game/intel.js');
@@ -789,7 +790,6 @@ check('The first-person view model is actually attached to a rendered scene', ()
 // ordered events, and a fire kick that settles. Tolerances are in centimetres.
 
 const vmMod = await import('../src/game/viewmodel.js');
-const THREE = await import('three');
 
 /** Reusable measurement harness over either rig. */
 function makeViewModelProbe(view) {
@@ -821,6 +821,59 @@ charMod.setCharacterLibrary(charGltf);
 const { setCharacterSource } = await import('../src/game/ai.js');
 setCharacterSource(charGltf);
 
+check('Aiming pose raises the weapon to chest height', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  if (!ch.actions || !ch.actions.aimPistol) throw new Error('no aim clip on the character');
+
+  const handAt = (aim) => {
+    for (let i = 0; i < 150; i++) { ch.pose(i / 60, 0, 0, aim); ch.update(1 / 60); }
+    ch.group.updateMatrixWorld(true);
+    return new THREE.Vector3().setFromMatrixPosition(ch.bones.get('DEF-handR').matrixWorld);
+  };
+  const idle = handAt(0);
+  const aim = handAt(1);
+  const rise = aim.y - idle.y;
+  // `aim` used to be accepted and discarded - the hand moved by 1 cm.
+  if (rise < 0.3) throw new Error(`aiming raised the hand only ${rise.toFixed(2)}m`);
+  return `hand ${idle.y.toFixed(2)}m → ${aim.y.toFixed(2)}m (+${rise.toFixed(2)})`;
+});
+
+check('Weapon muzzle points along the character forward axis across the aim blend', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  const out = [];
+  for (const aim of [0, 0.5, 1]) {
+    for (let i = 0; i < 150; i++) { ch.pose(i / 60, 0, 0, aim); ch.update(1 / 60); }
+    ch.group.updateMatrixWorld(true);
+    const mount = ch.parts.handR;
+    mount.updateMatrixWorld(true);
+    // The weapon is authored muzzle-down -Z, so the world -Z column of the
+    // mount is the muzzle direction - no guessing at Euler angles.
+    const e = mount.matrixWorld.elements;
+    const m = new THREE.Vector3(-e[8], -e[9], -e[10]).normalize();
+    // The raw library model faces +Z and is turned by PI, so at yaw 0 the
+    // character's forward is -Z in mesh space.
+    const dot = -m.z;
+    const off = Math.acos(Math.min(1, Math.max(-1, dot))) * 180 / Math.PI;
+    out.push(`aim=${aim} ${off.toFixed(0)}°`);
+    if (off > 25) throw new Error(`aim=${aim}: muzzle ${off.toFixed(0)}° off forward (${m.toArray().map((n) => n.toFixed(2))})`);
+  }
+  return out.join(', ');
+});
+
+check('Aim layers over locomotion without robbing the walk cycle', () => {
+  const ch = charMod.buildCharacter(charGltf, {});
+  for (let i = 0; i < 200; i++) { ch.pose(i / 60, 4.6, 0, 1); ch.update(1 / 60); }
+  const w = ch.weights;
+  const loco = Object.entries(w).filter(([k]) => k !== 'aimPistol').reduce((a, [, v]) => a + v, 0);
+  if (Math.abs(loco - 1) > 0.02) throw new Error(`locomotion weights sum to ${loco.toFixed(2)} while aiming`);
+  const aimW = ch.actions.aimPistol.getEffectiveWeight();
+  if (aimW < 0.7) throw new Error(`aim weight only ${aimW.toFixed(2)} at aim=1`);
+  const dominant = Object.entries(w).filter(([k]) => k !== 'aimPistol').sort((a, b) => b[1] - a[1])[0][0];
+  if (dominant !== 'jog' && dominant !== 'walk') throw new Error(`running while aiming picked ${dominant}`);
+  return `loco ${loco.toFixed(2)}, aim ${aimW.toFixed(2)}, ${dominant} dominant`;
+});
+
+
 check('Character library loads with the full clip set and a humanoid rig', () => {
   const ch = charMod.buildCharacter(charGltf, {});
   if (!ch.isSkinned) throw new Error('character is not skinned geometry');
@@ -851,9 +904,12 @@ check('Locomotion blends select the right clip for each speed, weights summing t
     const ch = charMod.buildCharacter(charGltf, {});
     for (let i = 0; i < 240; i++) { ch.pose(i / 60, spd, 0, 0.3); ch.update(1 / 60); }
     const w = ch.weights;
-    const sum = Object.values(w).reduce((a, b) => a + b, 0);
-    if (Math.abs(sum - 1) > 0.02) throw new Error(`${want}: weights sum to ${sum.toFixed(3)}`);
-    const dominant = Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
+    // Locomotion and aiming are separate layers: locomotion sums to 1 on its
+    // own, and the aim clip rides on top. Summing them together would be
+    // meaningless and is exactly the bug this asserts against.
+    const loco = Object.entries(w).filter(([k]) => k !== 'aimPistol').reduce((a, [, v]) => a + v, 0);
+    if (Math.abs(loco - 1) > 0.02) throw new Error(`${want}: locomotion weights sum to ${loco.toFixed(3)}`);
+    const dominant = Object.entries(w).filter(([k]) => k !== 'aimPistol').sort((a, b) => b[1] - a[1])[0][0];
     if (dominant !== want) throw new Error(`at ${spd} m/s the dominant clip is ${dominant}, expected ${want}`);
     out.push(`${spd}m/s→${dominant}`);
   }

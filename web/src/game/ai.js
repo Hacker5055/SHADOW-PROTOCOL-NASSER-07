@@ -675,6 +675,7 @@ export class SquadMember {
 
     const dGoal = dist2D(this.pos, goal);
     let spd = 0;
+    if (dGoal <= (this.order === SQUAD_ORDER.FOLLOW ? 1.2 : 0.8)) this.blockedT = 0;
     if (dGoal > (this.order === SQUAD_ORDER.FOLLOW ? 1.2 : 0.8)) {
       const sp = dGoal > 9 ? 6.4 : dGoal > 4 ? 4.4 : 2.9;
       const step = steer(g.world.collision, this.pos, { x: goal.x, z: goal.z }, sp * dt, 0.95);
@@ -684,12 +685,34 @@ export class SquadMember {
         spd = sp;
         this.walkT += dt * sp * 1.9;
       } else {
+        // Nothing in the fan of headings is walkable, which means the member is
+        // boxed in: pressed against a wall, a doorway or a piece of cover. The
+        // sidestep below can fail too, and if both fail every frame the member
+        // stands still forever while still holding a live move order — it looks
+        // like the squad order was simply ignored. Track how long we have been
+        // pinned and back out along the reverse heading after a moment.
+        this.blockedT = (this.blockedT || 0) + dt;
         // sidestep along the obstruction
         const side = steer(g.world.collision, this.pos, {
           x: this.pos.x + (this.order === SQUAD_ORDER.HOLD ? 0 : 10) * Math.cos(this.yaw + Math.PI / 2),
           z: this.pos.z + (this.order === SQUAD_ORDER.HOLD ? 0 : 10) * Math.sin(this.yaw + Math.PI / 2)
         }, sp * dt, 0.95);
-        if (!side.blocked) { this.pos.x = side.x; this.pos.z = side.z; }
+        if (!side.blocked) {
+          this.pos.x = side.x;
+          this.pos.z = side.z;
+        } else if (this.blockedT > 0.45) {
+          // Give up on the direct route and slide backwards along our own
+          // facing to unpick ourselves from whatever we are jammed against.
+          const back = steer(g.world.collision, this.pos, {
+            x: this.pos.x - Math.sin(this.yaw) * 4,
+            z: this.pos.z - Math.cos(this.yaw) * 4
+          }, sp * dt, 0.95);
+          if (!back.blocked) {
+            this.pos.x = back.x;
+            this.pos.z = back.z;
+          }
+          this.blockedT = 0;
+        }
       }
       this.pos.y = g.world.collision.surfaceAt(this.pos.x, this.pos.z, this.pos.y + 0.8, 0.28);
     }

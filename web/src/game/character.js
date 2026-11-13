@@ -80,6 +80,42 @@ export const CLIP_SPEED = {
 };
 
 const MODEL_FACING = Math.PI;
+
+/**
+ * Weapon-mount rotation that points the muzzle along the character's forward
+ * axis, sampled at three aim weights and linearly interpolated.
+ *
+ * Derived by solving `mountQuat * handWorldQuat * (0,0,-1) = forward` at each
+ * pose. Without this the rifle pointed at the floor behind the soldier: the
+ * hand bone's frame is nowhere near the character's forward axis.
+ */
+export const WRIST_AIM_TABLE = [
+  { aim: 0.0, x: 2.629, y: 0.007, z: -0.028 },
+  { aim: 0.5, x: 2.154, y: 0.153, z: -0.283 },
+  { aim: 1.0, x: 1.529, y: 0.122, z: -0.117 }
+];
+
+/** Interpolate the wrist table for an aim weight in [0,1]. */
+export function wristOffsetForAim(aim) {
+  const t = Math.max(0, Math.min(1, aim));
+  const a = WRIST_AIM_TABLE;
+  if (t <= a[0].aim) return { x: a[0].x, y: a[0].y, z: a[0].z };
+  if (t >= a[2].aim) return { x: a[2].x, y: a[2].y, z: a[2].z };
+  const u = (t - a[0].aim) / (a[1].aim - a[0].aim);
+  if (u <= 1) {
+    return {
+      x: a[0].x + (a[1].x - a[0].x) * u,
+      y: a[0].y + (a[1].y - a[0].y) * u,
+      z: a[0].z + (a[1].z - a[0].z) * u
+    };
+  }
+  const v = (t - a[1].aim) / (a[2].aim - a[1].aim);
+  return {
+    x: a[1].x + (a[2].x - a[1].x) * v,
+    y: a[1].y + (a[2].y - a[1].y) * v,
+    z: a[1].z + (a[2].z - a[1].z) * v
+  };
+}
 // Wide enough to cover the game's 1.9 / 4.6 / 6.2 m/s without clamping: a
 // clamped rate is a visible stutter, not a subtle one.
 const TIME_SCALE_MIN = 0.5;
@@ -178,10 +214,15 @@ export function buildCharacter(gltf, opts = {}) {
   weaponMount.name = 'weaponMount';
   if (handR) {
     handR.add(weaponMount);
-    // The library's hands rest palm-down along the forearm; lift the weapon into
-    // the fist and point it down the finger direction.
-    weaponMount.position.set(0, 0.02, 0.06);
-    weaponMount.rotation.set(Math.PI / 2, 0, 0);
+    // Orientation solved numerically, not guessed. The weapon model is authored
+    // with its muzzle down local -Z and the hand bone's frame is nowhere near the
+    // character's forward axis: with the obvious (PI/2, 0, 0) offset the muzzle
+    // pointed 0.83 down and 0.53 backwards, i.e. at the floor behind the soldier.
+    // The correct offset also changes through the aim blend because the wrist
+    // genuinely rotates, so it comes from WRIST_AIM_TABLE above and is refreshed
+    // every pose() call. The value set here is the low-ready extreme.
+    weaponMount.position.set(0, 0.035, 0.095);
+    weaponMount.rotation.set(WRIST_AIM_TABLE[0].x, WRIST_AIM_TABLE[0].y, WRIST_AIM_TABLE[0].z);
   }
 
   // ---------------------------------------------------------------- state
@@ -253,14 +294,35 @@ export function buildCharacter(gltf, opts = {}) {
     }
     state.weights = w;
 
+    // Aiming overrides the arm layer: the library ships a dedicated aim clip and
+    // blending into it lifts the hands from waist height (0.91 m) to chest/eye
+    // height (1.40 m), which is the silhouette that reads as "pointing a rifle".
+    // Before this, `aim` was accepted and thrown away — the parameter moved the
+    // hand by 1 cm, so enemies visibly aimed with their arms down.
+    const aimW = Math.max(0, Math.min(1, aim));
+    w.aimPistol = aimW;
+
     const k = 1 - Math.exp(-9 * (1 / 60));
+    // Locomotion and aim are separate layers: locomotion weights sum to 1 among
+    // themselves, and the aim clip rides on top. Letting aim into the same sum
+    // would rob the walk cycle of weight and make the legs stutter whenever an
+    // enemy pointed a rifle.
+    const aimAction = actions.aimPistol;
+    const locomotionTotal = 1 - aimW * 0.85;
     for (const role of Object.keys(w)) {
+      if (role === 'aimPistol') continue;
       const a = actions[role];
       if (!a) continue;
       const cur = a.getEffectiveWeight();
-      const next = cur + (w[role] - cur) * k;
+      const target = w[role] * locomotionTotal;
+      const next = cur + (target - cur) * k;
       a.setEffectiveWeight(next);
       if (next > 0.002 && !a.isRunning()) a.play();
+    }
+    if (aimAction) {
+      const next = aimAction.getEffectiveWeight() + (aimW * 0.85 - aimAction.getEffectiveWeight()) * k;
+      aimAction.setEffectiveWeight(next);
+      if (next > 0.002 && !aimAction.isRunning()) aimAction.play();
     }
 
     // ---------------------------------------------------- foot-locked rate
@@ -285,8 +347,10 @@ export function buildCharacter(gltf, opts = {}) {
     state.timeScale += (target - state.timeScale) * (1 - Math.exp(-7 * (1 / 60)));
     mixer.timeScale = state.timeScale;
 
-    // Arms on the weapon while aiming; the library's idle already holds a
-    // relaxed rifle-ish pose, so this is a weight nudge rather than a swap.
+    // Keep the muzzle level through the aim blend.
+    const wrist = wristOffsetForAim(aimW);
+    weaponMount.rotation.set(wrist.x, wrist.y, wrist.z);
+
     void t;
   };
 
