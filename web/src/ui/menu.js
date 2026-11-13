@@ -331,9 +331,10 @@ export class Menu {
         const idx = Number(el.dataset.chapter);
         const id = this.chapterMissionIds()[idx];
         if (!id) { g.audio.uiBack(); return; }
-        if (idx + 1 > g.save.progress.chaptersUnlocked) { g.audio.uiBack(); return; }
+        const chapterNo = this.chapterOfIndex(idx);
+        if (chapterNo > g.save.progress.chaptersUnlocked) { g.audio.uiBack(); return; }
         this.hideAll();
-        g.chapterIndex = idx + 1;
+        g.chapterIndex = chapterNo;
         g.startMission(id, { fromCheckpoint: false });
         g.requestLock();
         break;
@@ -547,10 +548,26 @@ export class Menu {
     return this.chapterMissionIds()[0] || null;
   }
 
+  /**
+   * The chapter a mission belongs to, as a 1-based number.
+   *
+   * This used to be the mission's *position* in the registry. Chapter 01 has two
+   * missions and every other chapter has one, so position and chapter drift
+   * apart by one from chapter 02 onwards — and the last chapter (position 8 of
+   * 8) needed eight unlocked chapters on a campaign that only has seven. The
+   * registered definition carries the real number.
+   */
   currentChapterIndex() {
-    const ids = this.chapterMissionIds();
-    const i = ids.indexOf(this.game.mission.id);
-    return i;
+    const def = this.game.missions.get(this.game.mission.id)?.def;
+    if (def && def.chapterIndex) return def.chapterIndex;
+    return this.chapterMissionIds().indexOf(this.game.mission.id) + 1;
+  }
+
+  /** Chapter number for the mission at registry position `i`. */
+  chapterOfIndex(i) {
+    const id = this.chapterMissionIds()[i];
+    const def = id ? this.game.missions.get(id)?.def : null;
+    return def && def.chapterIndex ? def.chapterIndex : i + 1;
   }
 
   nextMissionId() {
@@ -558,7 +575,8 @@ export class Menu {
     const i = ids.indexOf(this.game.mission.id);
     if (i >= 0 && i + 1 < ids.length) {
       const unlocked = this.game.save.progress.chaptersUnlocked;
-      if (i + 2 <= unlocked) return ids[i + 1];
+      // The next mission's own chapter number decides, not its position.
+      if (this.chapterOfIndex(i + 1) <= unlocked) return ids[i + 1];
     }
     return null;
   }
@@ -571,7 +589,7 @@ export class Menu {
     const done = g.save.progress.chaptersCompleted;
     grid.innerHTML = ids.map((id, i) => {
       const { def } = g.missions.get(id);
-      const locked = i + 1 > unlock;
+      const locked = def.chapterIndex > unlock;
       const isDone = def.chapterIndex <= done.length && done.includes(def.chapterIndex);
       return `<div class="chapter-card ${locked ? 'locked' : ''}" data-act="chapter" data-chapter="${i}">
         <div class="num">CHAPTER ${String(def.chapterIndex).padStart(2, '0')}</div>

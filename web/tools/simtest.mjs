@@ -1972,6 +1972,32 @@ check('The chapter 07 debrief renders the ending instead of a dead end', () => {
   return `ending card: ${before} → CLEAN HANDS after publishing`;
 });
 
+check('Chapter select uses chapter numbers, not mission positions', () => {
+  // Chapter 01 registers two missions and the other chapters register one, so
+  // registry position and chapter number drift apart by one after 01. The last
+  // chapter is mission 8 of 8, so position-based unlocking demanded eight
+  // unlocked chapters on a seven-chapter campaign and the card was permanently
+  // locked. `def.chapterIndex` is the only honest source.
+  const ids = game.menu.chapterMissionIds();
+  if (ids.length !== 8) throw new Error(`expected 8 missions in the registry, found ${ids.length}`);
+  const rows = ids.map((id, i) => {
+    const def = game.missions.get(id).def;
+    const mapped = game.menu.chapterOfIndex(i);
+    if (mapped !== def.chapterIndex) {
+      throw new Error(`${id} is mission ${i + 1} but chapterOfIndex said ${mapped}, def says ${def.chapterIndex}`);
+    }
+    return `${def.chapterIndex}`;
+  });
+  // The last mission must belong to the last chapter, not to a chapter one
+  // beyond the end of the campaign.
+  const lastDef = game.missions.get(ids[ids.length - 1]).def;
+  if (lastDef.chapterIndex > 7) throw new Error(`the final mission claims chapter ${lastDef.chapterIndex}`);
+  // And every chapter 1..7 must be represented.
+  const present = new Set(ids.map((id) => game.missions.get(id).def.chapterIndex));
+  for (let c = 1; c <= 7; c++) if (!present.has(c)) throw new Error(`chapter ${c} has no mission`);
+  return `${ids.length} missions → chapters ${rows.join(',')}`;
+});
+
 check('Chapter 07 objective count matches its mission definition', () => {
   // Seven objectives, one per act. A missing entry here is a chapter that
   // cannot be completed; a spare one is a beat nobody can reach.

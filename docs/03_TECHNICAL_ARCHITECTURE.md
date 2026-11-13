@@ -542,6 +542,14 @@ chapter, `PUBLISHED_LEDGER` had no writer at all — `CLEAN_HANDS` was unreachab
 → `CLEAN_HANDS` (with `TRUST_ADEL` + `SAVED_MARIAM`), leverage → `THE_LEDGER`, burn →
 `INHERITANCE`, and publish without the two alliances → `THE_LEDGER`. A test walks all four.
 
+**Chapter select indexed missions, not chapters.** Chapter 01 registers two missions
+(`ch01_crossing`, `ch01_final`) and every other chapter registers one, so registry position
+and chapter number diverge after chapter 01. Unlocking and the card grid both used position:
+the final chapter is mission 8 of 8 on a seven-chapter campaign, so its card needed eight
+unlocked chapters and could never open. `currentChapterIndex()` / `chapterOfIndex()` now read
+the registered `def.chapterIndex`, and a test walks the real registry asserting that all seven
+chapter numbers are represented and the last mission is chapter 7 rather than 8.
+
 **The ending card.** `showDebrief()` previously offered "PROCEED TO NEXT CHAPTER" or a bare
 return to the menu, which for the final mission meant the campaign ended without ever
 displaying the ending copy that `endingCopy()` has carried since chapter 01. The debrief now
