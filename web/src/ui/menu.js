@@ -5,6 +5,8 @@
  * and the modern command deck (graphite, telemetry, orange).
  */
 
+import { INTELLIGENCE, INTELLIGENCE_PRE_CODA } from '../game/intel.js';
+
 const CSS = `
 #menu{position:fixed;inset:0;z-index:60;font-family:"Bahnschrift","DIN Alternate","Roboto Condensed",Impact,system-ui,sans-serif;
   color:#e8e2d0;letter-spacing:.06em;user-select:none;overflow:hidden;transition:opacity .35s;}
@@ -691,6 +693,14 @@ export class Menu {
         ${flags[k] ? 'ESTABLISHED' : 'NOT ESTABLISHED'}</span></div>`;
     const ending = g.save.resolveEnding();
     const copy = g.save.endingCopy(ending);
+    // The index has to name documents, not echo their ids, and it has to tell
+    // the player which of them the 1973 coda actually needs. Printing
+    // `Object.keys(p.intel).join(' · ')` did neither.
+    const manifest = INTELLIGENCE;
+    const required = INTELLIGENCE_PRE_CODA;
+    const codaCount = required.filter((d) => (p.intel || {})[d.id]).length;
+    const codaTotal = required.length;
+    const codaHeld = !!(p.intel || {})['ch07_coda_1973'];
     this.root.querySelector('#dossier-body').innerHTML = `
       <div class="settings-grid">
         <div class="set-group" style="grid-column:span 1">
@@ -703,7 +713,7 @@ export class Menu {
         <div class="set-group">
           <h3>CAMPAIGN STATE</h3>
           <div class="set-row"><label>Chapters unlocked</label><span>${Math.min(p.chaptersUnlocked, 7)} / 7</span></div>
-          <div class="set-row"><label>Intelligence</label><span>${intelCount}</span></div>
+          <div class="set-row"><label>Intelligence</label><span>${intelCount} <small style="opacity:.5">/ ${manifest.length}</small></span></div>
           <div class="set-row"><label>Total eliminations</label><span>${p.totalKills || 0}</span></div>
           <div class="set-row"><label>Permanent losses</label><span>${p.casualties || 0}</span></div>
           <div class="set-row"><label>Play time</label><span>${Math.floor((p.playTime || 0) / 60)} min</span></div>
@@ -728,11 +738,21 @@ export class Menu {
         </div>
       </div>
       <div class="set-group" style="margin-top:22px">
-        <h3>INTELLIGENCE INDEX</h3>
-        <div style="font-size:11px;line-height:1.9;color:rgba(232,226,208,.55);letter-spacing:.04em">
-          Documents are recovered in-mission from evidence markers. ${intelCount === 0
-            ? 'No documents recovered yet. Check the admin block, the depot, and the briefing tables.'
-            : Object.keys(p.intel).join(' · ')}
+        <h3>INTELLIGENCE INDEX — ${intelCount} / ${manifest.length}</h3>
+        <div style="font-size:11px;line-height:2.0;letter-spacing:.04em">
+          ${intelCount === 0
+            ? '<span style="color:rgba(232,226,208,.55)">No documents recovered yet. They are recovered in-mission from evidence markers.</span>'
+            : manifest.map((d) => {
+              const held = !!(p.intel || {})[d.id];
+              return `<div style="display:flex;gap:10px;align-items:baseline;${held ? '' : 'opacity:.34'}">
+                <span style="color:${held ? '#9fbb74' : 'rgba(232,226,208,.5)'};font-size:9px;min-width:34px">CH ${String(d.chapter).padStart(2, '0')}</span>
+                <span style="flex:1;color:${held ? 'rgba(232,226,208,.86)' : 'rgba(232,226,208,.5)'}">${held ? d.title : '— not recovered —'}</span>
+                ${d.missable ? '<span style="font-size:9px;color:rgba(224,116,31,.6)">OPTIONAL</span>' : ''}
+              </div>`;
+            }).join('')}
+        </div>
+        <div style="margin-top:14px;font-size:10px;letter-spacing:.16em;color:${codaHeld ? '#9fbb74' : 'rgba(232,226,208,.4)'}">
+          ${codaHeld ? 'ARCHIVE COMPLETE — THE 1973 CODA IS OPEN' : `${codaCount} / ${codaTotal} REQUIRED FOR THE 1973 CODA`}
         </div>
       </div>
     `;

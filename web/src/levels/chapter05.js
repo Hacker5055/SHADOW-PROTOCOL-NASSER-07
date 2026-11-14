@@ -57,7 +57,8 @@ export const CH05_FLAGS = {
   ADEL_RELEASED: 'ADEL_RELEASED',
   GLASS_DEAD: 'GLASS_DEAD',
   SAVED_INTEL: 'SAVED_INTEL',
-  SAVED_FANG: 'SAVED_FANG'
+  SAVED_FANG: 'SAVED_FANG',
+  SAVED_CASE: 'SAVED_CASE'
 };
 
 export const CH05_LAYOUT = {
@@ -104,6 +105,7 @@ export function buildBetrayalMission(game, world) {
     timerOn: false,
     timeLeft: CH05_LAYOUT.recoveryWindow,
     intelRecovered: false,
+    caseRecovered: false,
     fangReached: false,
     mouseReached: false,
     mouseDecided: false,
@@ -155,7 +157,7 @@ export function buildBetrayalMission(game, world) {
       }));
       mission.addIntel({
         id: 'ch05_konsul_debrief',
-        title: 'Debrief — KONSUL in custody',
+        title: 'KONSUL — first debrief',
         era: 'modern',
         body: 'He talks in dates, not names. 1973, then 1979, then a gap of twenty years he refuses to account for. He says the ledger was never about money.'
       });
@@ -179,6 +181,22 @@ export function buildBetrayalMission(game, world) {
   // ------------------------------------------------------------------ 5.3 recovery triggers
   const recoveryArmed = () => state.ambushFired && state.timerOn && state.timeLeft > 0;
 
+  // The fourth recovery the debrief promises. The window is deliberately
+  // over-subscribed: three objectives, four pickups, one timer.
+  world.addTrigger('ch05_case', { x: CH05_LAYOUT.yardX + 16, y: 1, z: CH05_LAYOUT.shedZ - 6 }, 3.0, () => {
+    if (!recoveryArmed() || state.caseRecovered) return;
+    state.caseRecovered = true;
+    setFlag(game, CH05_FLAGS.SAVED_CASE);
+    mission.addIntel({
+      id: 'ch05_equipment_case',
+      title: 'Equipment case — the yard',
+      era: 'modern',
+      body: 'Two encrypted handsets and a directory in a waterproof bag. One of the handsets has MOUSE\'s callsign scratched into the battery cover, and it is not the handset he carries.'
+    });
+    game.hud.feed('INTELLIGENCE — equipment case recovered', 'intel');
+  }, true);
+
+  // state flag for the fourth pickup
   world.addTrigger('ch05_intel', { x: CH05_LAYOUT.shedX, y: 1, z: CH05_LAYOUT.shedZ + 3 }, 3.6, () => {
     if (!recoveryArmed() || state.intelRecovered) return;
     state.intelRecovered = true;
@@ -186,7 +204,7 @@ export function buildBetrayalMission(game, world) {
     mission.completeObjective(2, { notice: 'Intel recovered from the shed' });
     mission.addIntel({
       id: 'ch05_yard_manifest',
-      title: 'Freight manifest — Danube yard',
+      title: 'Freight manifest — the yard',
       era: 'modern',
       body: 'The crates were booked to Facility Mizan, Western Desert, consigned to a name that has been dead since 1997. The network is not buying weapons. It is moving paper.'
     });
@@ -328,6 +346,17 @@ function fireAmbush(game, world, state, mission, cast) {
   state.ambushFired = true;
   mission.completeObjective(0, { silent: true });
 
+  // The signal that brought them. It is a real object on the safehouse table,
+  // collected at the moment the ambush opens — the document the whole chapter
+  // is a reaction to.
+  mission.addIntel({
+    id: 'ambush_signal',
+    title: 'Ambush trigger signal',
+    era: 'modern',
+    body: 'A burst transmission on a Directorate channel, timestamped four minutes before the first man came through the stairwell. The origin address is inside this building.'
+  });
+  game.hud.feed('INTELLIGENCE — they called it in from inside the safehouse', 'intel');
+
   game.hud.feed('CONTACT — MULTIPLE, CLOSE', 'alert');
   game.hud.say({
     speaker: 'KARIM "GLASS" ZAYED',
@@ -410,6 +439,7 @@ function closeWindow(game, state, mission) {
   // Whatever was not reached is lost — and named.
   const missed = [];
   if (!state.intelRecovered) missed.push('the intel');
+  if (!state.caseRecovered) missed.push('the equipment case');
   if (!state.fangReached) missed.push('FANG');
   if (!state.mouseReached) missed.push('MOUSE');
   // Recorded on the chapter state as well as spoken, so the debrief and the
@@ -456,6 +486,12 @@ function askAboutMouse(game, state, mission) {
       textAr: 'ثق فيه. هو ماسلّمهمش الشقة.',
       apply: () => {
         setFlag(game, CH05_FLAGS.TRUST_ADEL);
+        mission.addIntel({
+          id: 'ch05_trust_record',
+          title: 'Decision — the fourth man',
+          era: 'modern',
+          body: 'Four people knew the safehouse. Nasser chose to trust the one standing in front of him and go looking for the fourth instead. Whatever the ledger costs later, this is the first entry in it that he wrote himself.'
+        });
         game.hud.say({
           speaker: 'NASSER 07',
           en: 'Four people knew that flat. Three of them are standing here. Find me the fourth.',

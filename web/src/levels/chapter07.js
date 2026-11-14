@@ -20,6 +20,7 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '../game/models.js';
+import { INTELLIGENCE, codaRequirement } from '../game/intel.js';
 import { MAT } from '../engine/materials.js';
 import {
   buildHarbourTerrain, addTower, addFloorPlate, addServerRow, addAtrium,
@@ -75,8 +76,14 @@ export const CH07_LAYOUT = {
   /** Where the player arrives on each floor: the lift bank, south side. */
   arriveZ: -4.6,
   liftRide: 2.4,
-  /** Documents in the whole campaign — the 1973 coda needs all of them. */
-  campaignIntelTotal: 21
+  /**
+   * Documents the 1973 coda requires — the manifest minus the two the epilogue
+   * hands out itself. Derived rather than hardcoded: a constant that disagrees
+   * with the manifest makes the coda either impossible (if too high) or free
+   * (if too low), and both have happened in this project.
+   */
+  campaignIntelTotal: codaRequirement(),
+  campaignIntelManifest: INTELLIGENCE.length
 };
 
 export function buildLegacyMission(game, world) {
@@ -142,9 +149,27 @@ export function buildLegacyMission(game, world) {
   buildQuay(world, state, game, mission);
   buildLedger(world, state, game, mission, helipadY);
 
-  // The 1973 coda only unlocks if the player actually found the documents.
-  state.foundAllIntel = Object.keys(game.save?.progress?.intel || {}).length >= L.campaignIntelTotal;
-  if (state.foundAllIntel) setFlag(game, CH07_FLAGS.FOUND_ALL_INTEL);
+  // The 1973 coda only unlocks if the player actually found every document in
+  // the manifest. `campaignIntelTotal` used to be a hardcoded 21 while only 12
+  // of those ids were recorded anywhere: the gate was unsatisfiable. It is now
+  // derived from the manifest, and re-checked when the epilogue runs because the
+  // chapter's own document is collected during the epilogue itself.
+  // Count only manifest documents that the epilogue does not hand out itself.
+  // A raw Object.keys() count is wrong twice over: it accepts ids the manifest
+  // has never heard of, and it counts the coda's own rewards.
+  const requiredIds = INTELLIGENCE.filter((d) => !d.epilogue).map((d) => d.id);
+  const intelFound = () => {
+    const held = game.save?.progress?.intel || {};
+    return requiredIds.filter((id) => held[id]).length;
+  };
+  const refreshFoundAll = () => {
+    state.intelCount = intelFound();
+    state.foundAllIntel = state.intelCount >= L.campaignIntelTotal;
+    if (state.foundAllIntel) setFlag(game, CH07_FLAGS.FOUND_ALL_INTEL);
+    return state.foundAllIntel;
+  };
+  state.refreshFoundAll = refreshFoundAll;
+  refreshFoundAll();
 
   return { ground, tower, floors, helipad, state };
 }
@@ -160,6 +185,39 @@ export function buildLegacyMission(game, world) {
  * in mid-air above the water. The lobby is now where it belongs, inside the
  * tower, and the quay is the approach to its south doors.
  */
+/**
+ * One document per floor. Each is the thing a real building like this would
+ * actually have on it: a data inventory, a tenancy record, a minutes book, and
+ * a flight log. They are awarded when the doors open, so a player who rides the
+ * lift cannot miss one and a player who does not reach the floor cannot fake it.
+ */
+const FLOOR_DOSSIERS = {
+  1: {
+    id: 'ch07_server_inventory',
+    title: 'Server inventory — floor 12',
+    era: 'modern',
+    body: 'Four hundred and six drives. Eleven of them are labelled with Egyptian military file references and none of them are encrypted, because the people who own this building have never had to be afraid of a search warrant.'
+  },
+  2: {
+    id: 'ch07_atrium_tenancy',
+    title: 'Tenancy schedule — floor 27',
+    era: 'modern',
+    body: 'The atrium is eight storeys of nothing because the company that owns the tower deducts it as "public realm". The occupant of the executive level has been the same shell company since 2011, and its registered address is a post office box in Alexandria.'
+  },
+  3: {
+    id: 'ch07_exec_minutes',
+    title: 'Board minutes — floor 41',
+    era: 'modern',
+    body: 'Item seven, fifteen consecutive meetings: "Archive status: no change." Somebody has been asking the same question about box 07 every quarter for four years, and every quarter the answer has been a lie someone typed.'
+  },
+  4: {
+    id: 'ch07_pad_log',
+    title: 'Flight log — helipad',
+    era: 'modern',
+    body: 'The pad has been used nine times this year, always between 03:00 and 05:00, always a charter out of Cairo West. Tonight is the tenth slot. Somebody is expecting to leave.'
+  }
+};
+
 function buildPodium(world) {
   const L = CH07_LAYOUT;
   const h = 5.6;
@@ -347,6 +405,10 @@ function buildLift(world, state, game, mission, after) {
       mission.completeObjective(idx, { notice: FLOOR_NAMES[idx] });
       game.hud.say({ ...FLOOR_LINES[idx], time: 5000 });
       const count = wakeFloor(world, idx, game);
+      // One document per arena floor: the debrief promises five dots for this
+      // chapter and the campaign's coda counts every one of them.
+      const dossier = FLOOR_DOSSIERS[idx];
+      if (dossier) mission.addIntel(dossier);
       if (count) game.hud.feed(`${count} HOSTILES ON THIS FLOOR`, 'warn');
       // The floor is not "done" until it is quiet — but the lift never waits on
       // it, so a defender who gets stuck in cover cannot softlock the chapter.
@@ -672,7 +734,10 @@ function epilogue(game, state, mission) {
 
   state.after(6.4, () => {
     mission.completeObjective(6, { notice: 'The grave at Mansoura' });
-    if (state.foundAllIntel) {
+    // Re-check rather than trusting the load-time snapshot: the roof's own
+    // document is collected before this point, and it counts.
+    const allFound = state.refreshFoundAll ? state.refreshFoundAll() : state.foundAllIntel;
+    if (allFound) {
       game.hud.say({
         speaker: 'NASSER 07',
         en: 'You took the bribe to buy back sixty men, then let them call you a traitor for forty-one years. I could have carried that with you.',
@@ -699,7 +764,7 @@ function epilogue(game, state, mission) {
   state.after(14, () => {
     setFlag(game, CH07_FLAGS.BOX_07B);
     mission.addIntel({
-      id: 'ch07_box_07b',
+      id: 'box07b',
       title: 'BOX 07-B',
       era: 'modern',
       body: 'In the same vault, one drawer along, a second box carries the number 07-B. The label is in a hand Nasser does not recognise, and the date written on it is next year.'

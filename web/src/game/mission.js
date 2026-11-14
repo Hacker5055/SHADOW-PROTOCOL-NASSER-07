@@ -32,7 +32,9 @@ export class Mission {
     this.checkpoints = [];
     this.intelTotal = 0;
     this.intelFound = 0;
+    this.intelCarried = 0;
     this.intelLog = [];
+    this.intelSeeded = false;
     this.beats = new Map();
     this.firedTriggers = new Set();
     this.darknessAt = 0;
@@ -52,6 +54,18 @@ export class Mission {
 
   load(def) {
     this.reset();
+    // Documents are campaign-wide. The save keeps one set; the per-mission log
+    // has to start from it or every debrief counts from zero and a duplicate
+    // document looks new.
+    const carried = this.game?.save?.progress?.intel || {};
+    for (const id of Object.keys(carried)) this.intelLog.push({ id, carried: true });
+    // Two different numbers, and conflating them is how a debrief ends up
+    // reading "14 / 5": `intelFound` is what THIS mission yielded, `intelCarried`
+    // is what the campaign already had. The coda reads the save, the debrief
+    // reads this.
+    this.intelCarried = this.intelLog.length;
+    this.intelFound = 0;
+    this.intelSeeded = true;
     this.id = def.id;
     this.code = def.code;
     this.title = def.title;
@@ -120,9 +134,14 @@ export class Mission {
   }
 
   addIntel(item) {
+    // Documents are campaign-wide, not per-mission. The save has always kept
+    // `progress.intel` as one set across the campaign, but the in-memory log
+    // reset on every `load()`, so each mission's debrief counted from zero and
+    // any "all documents found" gate had to be read off the save instead.
+    // Seeding the log from the save keeps the two views in agreement.
     if (this.intelLog.find((i) => i.id === item.id)) return false;
     this.intelLog.push(item);
-    this.intelFound = Math.max(this.intelFound, this.intelLog.length);
+    this.intelFound += 1;
     this.game.audio.objective();
     this.game.hud.feed(`INTELLIGENCE RECOVERED — ${item.title}`, '');
     this.game.save.setProgress((p) => {

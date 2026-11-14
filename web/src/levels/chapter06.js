@@ -130,6 +130,12 @@ export function buildMizanMission(game, world) {
       radio: true
     });
     game.audio?.radio(9, 0.35);
+    mission.addIntel({
+      id: 'ch06_transfer_manifest',
+      title: 'Transfer manifest — bunker mouth',
+      era: 'modern',
+      body: 'A steel clipboard left hanging by the door. Thirty-one deliveries since March, every one of them paper, none of them weapons. The network has not been arming a war down here. It has been stockpiling a record.'
+    });
   }, true);
 
   // ------------------------------------------------------------------ 6.2 security
@@ -163,6 +169,12 @@ export function buildMizanMission(game, world) {
   world.addTrigger('ch06_security', { x: 0, y: 1, z: CH06_LAYOUT.securityZ }, 7, () => {
     if (state.securityCleared) return;
     state.securityCleared = true;
+    mission.addIntel({
+      id: 'ch06_security_log',
+      title: 'Duty board — security ring',
+      era: 'modern',
+      body: 'Shift changes chalked onto a slate: 1963, 1974, 1985, 1996, 2007, 2018. Six entries, five generations, one signature block that has never changed. The same man has been signing this board since before Nasser was born.'
+    });
     mission.completeObjective(1, { notice: 'Through the Security ring' });
     game.hud.say({
       speaker: 'HODA "JACKAL" MANSOUR',
@@ -222,8 +234,8 @@ export function buildMizanMission(game, world) {
     state.recordsCleared = true;
     mission.completeObjective(3, { notice: 'Records ring cleared' });
     mission.addIntel({
-      id: 'ch06_records_index',
-      title: 'Records index — 1963 to present',
+      id: 'curator_ledger',
+      title: 'The Curator\'s original ledger',
       era: 'modern',
       body: 'Every Egyptian military file since 1963 has a duplicate in this room. Including files that were ordered destroyed. Including the one in Nasser\'s helmet.'
     });
@@ -247,6 +259,12 @@ export function buildMizanMission(game, world) {
       radio: true
     });
     game.audio?.setTension?.(0.6);
+    mission.addIntel({
+      id: 'ch06_habitat_roll',
+      title: 'Habitat roll — the people below',
+      era: 'modern',
+      body: 'A school register, hand-ruled on the back of a 1979 duty roster. Forty-one names, thirty of them children, none of them in any Egyptian census. Somebody has been keeping a town off the books for two generations.'
+    });
   }, true);
 
   // ------------------------------------------------------------------ 6.5 core
@@ -257,7 +275,7 @@ export function buildMizanMission(game, world) {
     mission.completeObjective(6, { notice: 'Recovered the original page' });
     flag(game, CH06_FLAGS.ORIGINAL_PAGE);
     mission.addIntel({
-      id: 'ch06_original_page',
+      id: 'original_page_1973',
       title: 'The original — 1973 annex, page 4',
       era: 'modern',
       body: 'The same page that is folded inside Nasser\'s helmet, but this copy has the co-signature field intact. It reads: T. ABDEL-HAKIM. Below it, in the same hand: "for the platoon. 1.4."'
@@ -445,8 +463,8 @@ function meetTheCurator(game, state, mission) {
       time: 6200
     });
     mission.addIntel({
-      id: 'ch06_curator_testimony',
-      title: 'Testimony — the Curator',
+      id: 'shadow_directive',
+      title: 'Standing directive — SHADOW PROTOCOL',
       era: 'modern',
       body: 'Shadow Protocol is a records programme, not an arms programme. For sixty years its purpose has been to control which version of Egyptian military history survives. Taher paid into it to keep his platoon alive.'
     });

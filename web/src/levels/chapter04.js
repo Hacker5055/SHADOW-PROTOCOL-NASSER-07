@@ -175,7 +175,7 @@ export function buildViennaMission(game, world) {
       if (state.photographed.size === couriers.length) {
         mission.completeObjective(1, { notice: 'All three couriers photographed' });
         mission.addIntel({
-          id: 'ch04_courier_set',
+          id: 'vienna_survey',
           title: 'Surveillance set — three couriers',
           era: 'modern',
           body: 'Same briefcase, same hotel, three different arrivals from three different countries. KONSUL is not buying. He is auditing.'
@@ -228,6 +228,15 @@ export function buildViennaMission(game, world) {
     setFlag(game, CH04_FLAGS.CCTV_DOWN);
     mission.completeObjective(2, { notice: 'CCTV network disabled' });
     game.hud.feed('CCTV NETWORK DOWN — patrols are slower to converge', 'intel');
+    // The recorder comes out of the box with the wire cut. It is the chapter's
+    // fifth document — the debrief has always promised five and only four beats
+    // ever awarded one, so a player could never fill the dots.
+    mission.addIntel({
+      id: 'ch04_cctv_recorder',
+      title: 'CCTV recorder — market hall',
+      era: 'modern',
+      body: 'Nine days of footage on a drive the size of a matchbox. Six of those days show the same man walking the market hall without ever buying anything, and one of them shows him meeting the couriers.'
+    });
     game.hud.say({
       speaker: 'ADEL "MOUSE" FARHAN',
       en: 'Cameras are blind. Their control room is going to spend ten minutes being confused.',
@@ -552,7 +561,7 @@ function presentKonsulDecision(game, world, state, mission, konsul) {
         konsul.surrendered = true;
         setFlag(game, CH04_FLAGS.KONSUL_ALIVE);
         mission.addIntel({
-          id: 'ch04_konsul_custody',
+          id: 'konsul_file',
           title: 'KONSUL — in custody',
           era: 'modern',
           body: 'He did not resist. He asked, politely, whether we had brought the 1973 original. He said he had been waiting for someone to ask the right question for fifty years.'

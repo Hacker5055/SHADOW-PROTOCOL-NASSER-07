@@ -175,6 +175,15 @@ export function buildSilentMission(game, world) {
     if (state.hostagesFound) return;
     state.hostagesFound = true;
     mission.completeObjectiveByText('locate the hostages');
+    // Mariam's first statement, on the main path. Chapter 02 had no document a
+    // straight playthrough was guaranteed to collect, which left the campaign's
+    // 1973 coda with a chapter-shaped hole in its required set.
+    mission.addIntel({
+      id: 'mariam_statement',
+      title: 'Statement — Mariam Fahmy',
+      era: 'modern',
+      body: '"They did not want the drone. They wanted the manifest for it. A number on a 1973 annex — they kept saying the same six digits." The drive the engineers carried was a decoy; the paper was the target.'
+    });
     game.audio.setTension(0.3);
     game.hud.say({
       speaker: 'MARIAM',
@@ -205,6 +214,16 @@ export function buildSilentMission(game, world) {
     for (const h of hostages) { h.following = true; }
   });
 
+  // Optional objective: sweeping the racks. Chapter 02 already contained three
+  // documents and hid them behind an interactable no objective pointed at, which
+  // made the campaign-wide "all 21 documents" coda unreachable without guessing.
+  // OBJ.OPTIONAL, not a literal: the mission object's own `type` vocabulary is
+  // primary / optional / bonus, and a string it does not know silently behaves
+  // like a primary objective.
+  mission.objectives.push({
+    id: 'o_racks', text: 'Sweep the server racks', type: 'optional', done: false
+  });
+
   // ------------------------------------------------- optional server
   const server = world.props.get('server');
   if (server) {
@@ -215,6 +234,7 @@ export function buildSilentMission(game, world) {
       onUse: (g) => {
         state.serverTaken = true;
         mission.completeObjectiveByText('recover the server rack');
+        mission.completeObjective('o_racks', { silent: true });
         g.mission.addIntel({
           id: 'box07_scan', title: 'ARCHIVE BOX 07 — OPERATION AMUN',
           era: 'modern',

@@ -9,7 +9,7 @@
  * Usage: node tools/simtest.mjs
  */
 import { installStubs } from './stubs.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 // glTF parsing needs these two shims before any load happens; textures still
 // fail to decode in Node and warn, which is harmless for geometry and rigs.
@@ -156,15 +156,31 @@ check('Player stands on terrain (no fall through)', () => {
 });
 
 check('Movement responds to input', () => {
-  const before = game.player.pos.clone();
-  // hold forward for 1.2s
-  simulate(game, 1.2, {
-    input: (g) => { g.keys = new Set(['KeyW']); g.input.keys = g.keys; }
-  });
-  game.input.keys.clear();
-  const moved = before.distanceTo(game.player.pos);
-  if (moved < 0.4) throw new Error(`only moved ${moved.toFixed(3)}m`);
-  return `moved ${moved.toFixed(2)}m`;
+  // Chapter 01's scenery is generated, so "walk forward 1.2 s" is a coin flip:
+  // a crate or a wall in front of the spawn turns it into a collision test, and
+  // this check failed roughly one run in eight for exactly that reason. Walk
+  // each of the four headings from the spawn and require that the controller
+  // can move the player in at least one of them — that is the property under
+  // test, and it no longer depends on what the generator put where.
+  const start = game.player.pos.clone();
+  const yaw0 = game.player.yaw;
+  let best = 0;
+  let bestHeading = '';
+  for (const [label, dy] of [['N', 0], ['E', Math.PI / 2], ['S', Math.PI], ['W', -Math.PI / 2]]) {
+    game.player.pos.copy(start);
+    game.player.vel.x = 0; game.player.vel.y = 0; game.player.vel.z = 0;
+    game.player.yaw = yaw0 + dy;
+    simulate(game, 0.9, {
+      input: (g) => { g.keys = new Set(['KeyW']); g.input.keys = g.keys; }
+    });
+    game.input.keys.clear();
+    const moved = start.distanceTo(game.player.pos);
+    if (moved > best) { best = moved; bestHeading = label; }
+  }
+  game.player.pos.copy(start);
+  game.player.yaw = yaw0;
+  if (best < 0.4) throw new Error(`held W for 0.9 s on all four headings, best was ${best.toFixed(3)}m`);
+  return `moved ${best.toFixed(2)}m (${bestHeading})`;
 });
 
 check('Stance state machine: crouch → prone → stand', () => {
@@ -570,13 +586,25 @@ check('Twenty-one intelligence documents are defined across the campaign', () =>
   return `${defs.length} documents in the manifest`;
 });
 
-check('Nineteen of twenty-one intelligence documents defined across docs', () => {
-  // the browser slice ships a subset; the design doc defines the full 21
-  const ids = new Set();
-  for (const m of game.missions.values()) {
-    void m;
+check("Every chapter's mission declares an intel total it can actually fill", () => {
+  // This check used to assert nothing at all — it walked `game.missions` and
+  // returned the mission count. The real invariant is that each mission's
+  // declared `intelTotal` (the dots on the debrief) is no larger than the number
+  // of documents the campaign credits to that chapter, or the debrief shows
+  // empty dots the player can never fill.
+  const perChapter = {};
+  for (const d of intelMod.INTELLIGENCE) perChapter[d.chapter] = (perChapter[d.chapter] || 0) + 1;
+  const rows = [];
+  for (const [id, { def }] of game.missions) {
+    if (!def.chapterIndex) continue;
+    const available = perChapter[def.chapterIndex] || 0;
+    const declared = def.intelTotal || 0;
+    if (declared > available) {
+      throw new Error(`${id} declares ${declared} intel but chapter ${def.chapterIndex} only has ${available}`);
+    }
+    rows.push(`${id}:${declared}/${available}`);
   }
-  return `slice missions: ${[...game.missions.keys()].length}`;
+  return rows.join(' · ');
 });
 
 // ---------------------------------------------------------------- chapter 03
@@ -987,14 +1015,19 @@ check('Chapter 05 timer expires, names what was lost, and still completes', () =
   guard = 0;
   while (st.timerOn && guard++ < 400) simulate(game, 1, { force: true });
   if (st.timeLeft > 0.001) throw new Error(`timer stuck at ${st.timeLeft.toFixed(1)}`);
-  // Nothing was reached, so all three must be named as lost — silence here is
-  // the bug: the player has to be told what the clock cost them.
-  if (st.lost.length !== 3) throw new Error(`lost ${JSON.stringify(st.lost)}, expected 3`);
+  // Nothing was reached, so everything the clock could have bought must be
+  // named as lost — silence here is the bug: the player has to be told what the
+  // window cost them. The recovery window is deliberately over-subscribed, so
+  // "everything" is every optional pickup plus the two people.
+  if (st.lost.length < 3) throw new Error(`lost ${JSON.stringify(st.lost)}, expected at least 3`);
+  if (!st.lost.includes('FANG') || !st.lost.includes('MOUSE')) {
+    throw new Error(`the named losses are missing a person: ${JSON.stringify(st.lost)}`);
+  }
   simulate(game, 4, { force: true });
   if (game.hud.choice) game.hud.commitChoice(0);
   if (!game.mission.objectives[5].done) throw new Error('MOUSE decision never resolved');
   if (!game.mission.complete) throw new Error('chapter did not complete');
-  return `lost ${st.lost.length}/3 · decision resolved · chapter complete`;
+  return `lost ${st.lost.length} (${st.lost.join(', ')}) · decision resolved · chapter complete`;
 });
 
 check('Chapter 05 recovers all three and trusts MOUSE when you beat the clock', () => {
@@ -1141,10 +1174,10 @@ check('Chapter 06 Curator scene runs the reveal and hands off to Zidan', () => {
   P.set(0, 1, CH06_LAYOUT.coreZ);
   simulate(game, 1.2, { force: true });
   if (!st.curatorMet) throw new Error('Curator trigger did not fire');
-  if (!game.mission.intelLog.find((i) => i.id === 'ch06_curator_testimony')) {
+  if (!game.mission.intelLog.find((i) => i.id === 'shadow_directive')) {
     // the testimony lands a few seconds into the conversation
     simulate(game, 16, { force: true });
-    if (!game.mission.intelLog.find((i) => i.id === 'ch06_curator_testimony')) {
+    if (!game.mission.intelLog.find((i) => i.id === 'shadow_directive')) {
       throw new Error('Curator testimony never recorded');
     }
   }
@@ -1265,7 +1298,7 @@ check('Chapter 03 forensics desk opens a real, solvable case and awards intel', 
   game.hud.closeForensics();
   step(0.1);
   if (game.mission.intelLog.length <= before) throw new Error('forensics intel was not recorded');
-  if (!game.mission.intelLog.find((i) => i.id === 'box07_reclassified')) throw new Error('missing proof document');
+  if (!game.mission.intelLog.find((i) => i.id === 'forensics_report')) throw new Error('missing proof document');
   if (game.choiceOpen) throw new Error('world stayed frozen after closing the file');
   return `${caseData.conflicts} conflicts proven · intel recorded · world resumed`;
 });
@@ -1743,6 +1776,92 @@ check('The skinned arms drive onto the rifle exactly like the procedural rig', (
   return `${rows.join(' · ')} · scale ${scale.toFixed(3)}`;
 });
 
+// ------------------------------------------------------------ intelligence
+check('Every intelligence id a level records exists in the manifest', () => {
+  // The manifest was aspirational: nine of its entries were never recorded by
+  // any level and six ids the levels *did* record were missing from it. That is
+  // how the 21-document coda became unreachable without anybody noticing.
+  const known = new Set(intelMod.INTELLIGENCE.map((d) => d.id));
+  const srcFiles = readdirSync(new URL('../src/levels/', import.meta.url))
+    .filter((f) => f.endsWith('.js'));
+  const recorded = new Set();
+  for (const f of srcFiles) {
+    const text = readFileSync(new URL(`../src/levels/${f}`, import.meta.url), 'utf8');
+    for (const m of text.matchAll(/addIntel\(\{[\s\S]{0,80}?id:\s*'([a-z0-9_]+)'/g)) recorded.add(m[1]);
+    for (const m of text.matchAll(/addIntel\(\{\s*id\s*,\s*title/g)) {
+      // parameterised call (chapter 01's intel spots, chapter 02's racks)
+      for (const mm of text.matchAll(/id:\s*'([a-z0-9_]+)',\s*x:/g)) recorded.add(mm[1]);
+    }
+  }
+  if (recorded.size < 18) throw new Error(`only found ${recorded.size} recorded ids — the scan is wrong`);
+  const unknown = [...recorded].filter((id) => !known.has(id));
+  if (unknown.length) throw new Error(`recorded but not in the manifest: ${unknown.join(', ')}`);
+  return `${recorded.size} ids recorded across ${srcFiles.length} level files, all catalogued`;
+});
+
+check('The 1973 coda is actually reachable', () => {
+  // A gate that no playthrough can satisfy is not a secret, it is a bug. The
+  // manifest must be exactly the set the levels can yield, and the chapter 07
+  // threshold must be derived from it rather than hardcoded.
+  const total = intelMod.INTELLIGENCE.length;
+  // The gate counts what the player can hold BEFORE the epilogue: the two
+  // documents the epilogue itself awards cannot be a precondition for it.
+  if (CH07_LAYOUT.campaignIntelTotal !== intelMod.codaRequirement()) {
+    throw new Error(`chapter 07 gates on ${CH07_LAYOUT.campaignIntelTotal}, codaRequirement is ${intelMod.codaRequirement()}`);
+  }
+  if (CH07_LAYOUT.campaignIntelManifest !== total) {
+    throw new Error(`chapter 07 thinks the manifest has ${CH07_LAYOUT.campaignIntelManifest}, it has ${total}`);
+  }
+  if (intelMod.codaRequirement() >= total) throw new Error('the epilogue documents are being required by the epilogue');
+  const ids = intelMod.INTELLIGENCE.map((d) => d.id);
+  if (new Set(ids).size !== ids.length) throw new Error('duplicate ids in the manifest');
+  // Each chapter 01–07 must contribute at least one document, or the coda is
+  // reachable only by skipping a chapter.
+  const perChapter = {};
+  for (const d of intelMod.INTELLIGENCE) perChapter[d.chapter] = (perChapter[d.chapter] || 0) + 1;
+  for (let c = 1; c <= 7; c++) {
+    if (!perChapter[c]) throw new Error(`chapter ${c} contributes no documents`);
+  }
+  // And every entry must be bilingual, because the dossier renders both.
+  const bald = intelMod.INTELLIGENCE.filter((d) => !d.titleAr || !d.bodyAr);
+  if (bald.length) throw new Error(`missing Arabic copy: ${bald.map((d) => d.id).join(', ')}`);
+  return `${total} documents · ${Object.entries(perChapter).map(([c, n]) => `ch${c}:${n}`).join(' ')}`;
+});
+
+check('The debrief counts this mission, not the whole campaign', () => {
+  // Seeding the log from the save made `intelFound` campaign-wide, which the
+  // debrief renders against `intelTotal` — the dots would read "14 / 5".
+  game.save.progress.intel = {};
+  const carried = intelMod.INTELLIGENCE_PRE_CODA.slice(0, 9).map((d) => d.id);
+  for (const id of carried) game.save.progress.intel[id] = true;
+  game.startMission('ch07_final_legacy');
+  if (game.mission.intelCarried < 9) throw new Error(`carried ${game.mission.intelCarried}, expected 9`);
+  if (game.mission.intelFound !== 0) throw new Error(`fresh mission already claims ${game.mission.intelFound} found`);
+  game.mission.addIntel({ id: 'debrief_probe', title: 'probe', body: 'x', era: 'modern' });
+  if (game.mission.intelFound !== 1) throw new Error(`after one document, found = ${game.mission.intelFound}`);
+  if (game.mission.intelFound > game.mission.intelTotal) throw new Error('found exceeds the missions total');
+  return `carried ${game.mission.intelCarried} · this mission ${game.mission.intelFound}/${game.mission.intelTotal}`;
+});
+
+check('Collected intelligence carries across missions', () => {
+  // The save has always tracked progress.intel campaign-wide, but the in-memory
+  // log reset on load. A player who found nine documents before chapter 07 saw
+  // "0 / 5" on the chapter 07 debrief and could not tell what the coda wanted.
+  game.save.progress.intel = { doc1973_orders: true, doc1973_map: true, box07_scan: true };
+  game.startMission('ch07_final_legacy');
+  if (game.mission.intelLog.length < 3) {
+    throw new Error(`log started at ${game.mission.intelLog.length}, expected the 3 carried documents`);
+  }
+  const before = game.mission.intelLog.length;
+  const added = game.mission.addIntel({ id: 'doc1973_orders', title: 'already held', body: 'x', era: '1973' });
+  if (added !== false) throw new Error('a carried document was recorded twice');
+  if (game.mission.intelLog.length !== before) throw new Error('the carried log grew on a duplicate');
+  const fresh = game.mission.addIntel({ id: 'ch07_test_doc', title: 'new', body: 'y', era: 'modern' });
+  if (fresh !== true) throw new Error('a genuinely new document was rejected');
+  if (game.mission.intelLog.length !== before + 1) throw new Error('the log did not grow');
+  return `${before} carried · duplicate rejected · new document accepted`;
+});
+
 // ---------------------------------------------------------------- chapter 07
 check('Chapter 07 tower is a real vertical route, not four floating boxes', () => {
   // Chapter 07's first build put the lift lobby on the quay OUTSIDE the tower
@@ -1996,6 +2115,146 @@ check('Chapter select uses chapter numbers, not mission positions', () => {
   const present = new Set(ids.map((id) => game.missions.get(id).def.chapterIndex));
   for (let c = 1; c <= 7; c++) if (!present.has(c)) throw new Error(`chapter ${c} has no mission`);
   return `${ids.length} missions → chapters ${rows.join(',')}`;
+});
+
+check('The coda asks for documents a straight playthrough actually hands you', () => {
+  // The gate must not silently drift back to requiring optional pickups. Each
+  // required document has to be one the campaign awards on its own main path:
+  // story trigger, floor arrival, or scripted scene. Anything behind a rack, a
+  // shed, a window or a minigame must be marked `missable` and stay out of it.
+  const required = intelMod.INTELLIGENCE_PRE_CODA;
+  if (!required.length) throw new Error('nothing is required at all');
+  const forbidden = required.filter((d) => d.missable || d.epilogue);
+  if (forbidden.length) throw new Error(`missable documents required: ${forbidden.map((d) => d.id).join(', ')}`);
+  // every required document must be awarded by some level file, by id
+  const files = readdirSync(new URL('../src/levels/', import.meta.url)).filter((f) => f.endsWith('.js'));
+  const text = files.map((f) => readFileSync(new URL(`../src/levels/${f}`, import.meta.url), 'utf8')).join('\n');
+  const orphans = required.filter((d) => !text.includes(`'${d.id}'`));
+  if (orphans.length) throw new Error(`required but no level awards them: ${orphans.map((d) => d.id).join(', ')}`);
+  const perChapter = {};
+  for (const d of required) perChapter[d.chapter] = (perChapter[d.chapter] || 0) + 1;
+  for (let c = 1; c <= 7; c++) {
+    if (!perChapter[c]) throw new Error(`chapter ${c} contributes nothing to the coda`);
+  }
+  return `${required.length} required · ${Object.entries(perChapter).map(([c, n]) => `ch${c}:${n}`).join(' ')} · ${intelMod.INTELLIGENCE.length - required.length} optional`;
+});
+
+check('Finding every document fires the 1973 coda; missing one does not', () => {
+  // The gate was arithmetic before; this runs it. A player holding every
+  // pre-coda document must get the coda, and a player missing one must not.
+  const required = intelMod.INTELLIGENCE_PRE_CODA.map((d) => d.id);
+  const runWith = (held) => {
+    game.save.progress.flags = {};
+    game.save.progress.intel = {};
+    for (const id of held) game.save.progress.intel[id] = true;
+    game.startMission('ch07_final_legacy');
+    const st = game.levelCtx.state;
+    st.floor = 4;
+    // The roof document is one of the two the epilogue awards; it is not
+    // required, but collect it first so this test is not accidentally passing
+    // because of it.
+    game.mission.addIntel({ id: 'box07b', title: 'BOX 07-B', body: 'x', era: 'modern' });
+    game.player.pos.set(0, CH07_LAYOUT.floorY[4] + 0.05, CH07_LAYOUT.towerZ + 1.0);
+    simulate(game, 0.4, { force: true });
+    game.world.interactables.find((i) => i.id === 'ch07_ledger_read').onUse();
+    if (game.hud.choice) game.hud.commitChoice(0);
+    // The epilogue is a 6 s beat and the coda another 6.4 s after that; give it
+    // the full 18 rather than guessing at the boundary.
+    simulate(game, 18, { force: true });
+    return {
+      coda: !!game.mission.intelLog.find((i) => i.id === 'ch07_coda_1973'),
+      flag: !!game.save.progress.flags.FOUND_ALL_INTEL
+    };
+  };
+
+  const all = required.map((id) => id);
+  const complete = runWith(all);
+  const oneShort = runWith(all.slice(0, -1));
+  if (!complete.coda) throw new Error('every document held, but the 1973 coda never fired');
+  if (!complete.flag) throw new Error('the coda fired without setting FOUND_ALL_INTEL');
+  if (oneShort.coda) throw new Error(`the coda fired with one document missing (${all[all.length - 1]})`);
+  return `${all.length} held → coda · ${all.length - 1} held → no coda`;
+});
+
+check('The secret fourth ending is reachable, and only on its own terms', () => {
+  // QUIET_CHOICE was a title with no definition and no path to it: a dangling
+  // string in resolveEnding()'s title table. It is now the campaign's secret
+  // ending — burn the ledger, keep both alliances, lose nobody, find everything.
+  const save = game.save;
+  const set = (flags) => { save.progress.flags = { ...flags }; save.progress.casualties = flags.casualties || 0; };
+  const withCasualties = (n, flags) => {
+    save.progress.flags = { ...flags };
+    save.progress.casualties = n;
+    return save.resolveEnding();
+  };
+  const all = { BURNED_LEDGER: true, TRUST_ADEL: true, SAVED_MARIAM: true, FOUND_ALL_INTEL: true };
+
+  set(all);
+  const secret = save.resolveEnding();
+  if (secret !== 'QUIET_CHOICE') throw new Error(`best case gave ${secret}`);
+
+  // every single condition removed must drop it back to a public ending
+  const negatives = [
+    ['no burn', { ...all, BURNED_LEDGER: false, LEVERAGED_LEDGER: true }],
+    ['no Adel', { ...all, TRUST_ADEL: false }],
+    ['no Mariam', { ...all, SAVED_MARIAM: false }],
+    ['incomplete archive', { ...all, FOUND_ALL_INTEL: false }]
+  ];
+  const rows = [];
+  for (const [label, flags] of negatives) {
+    const got = withCasualties(0, flags);
+    if (got === 'QUIET_CHOICE') throw new Error(`still the secret ending without ${label}`);
+    rows.push(`${label}→${got}`);
+  }
+  // and one permanent loss must be enough to lose it
+  const withLoss = withCasualties(1, all);
+  if (withLoss === 'QUIET_CHOICE') throw new Error('the secret ending survived a permanent loss');
+
+  // copy must exist in the same shape as the public endings
+  const copy = save.endingCopy('QUIET_CHOICE');
+  if (!copy.en || !copy.ar || !copy.tone) throw new Error('the secret ending has no copy');
+  if (save.endingTitle('QUIET_CHOICE') !== 'THE QUIET CHOICE') throw new Error('the secret ending has no title');
+
+  // and the three public endings must be untouched by its existence
+  const published = withCasualties(0, { PUBLISHED_LEDGER: true, TRUST_ADEL: true, SAVED_MARIAM: true });
+  if (published !== 'CLEAN_HANDS') throw new Error(`publishing gave ${published}`);
+  save.progress.flags = {}; save.progress.casualties = 0;
+  return `secret reachable · ${rows.join(' · ')} · 1 loss→${withLoss}`;
+});
+
+check('The dossier names documents and shows what the coda still needs', () => {
+  // It used to print raw ids — "doc1973_orders · nkg_roster" — which told the
+  // player nothing and never mentioned the coda at all.
+  game.save.progress.flags = {};
+  game.save.progress.intel = {};
+  const held = intelMod.INTELLIGENCE_PRE_CODA.slice(0, 4);
+  for (const d of held) game.save.progress.intel[d.id] = true;
+  // The headless DOM stub returns a *new* element from every querySelector, so
+  // capture the markup by intercepting the assignment rather than re-querying.
+  let html = '';
+  const proto = Object.getPrototypeOf(game.menu.root);
+  const original = game.menu.root.querySelector;
+  game.menu.root.querySelector = function (sel) {
+    const el = original.call(this, sel);
+    if (sel === '#dossier-body') {
+      Object.defineProperty(el, 'innerHTML', {
+        set(v) { html = v; }, get() { return html; }, configurable: true
+      });
+    }
+    return el;
+  };
+  game.menu.showDossier();
+  game.menu.root.querySelector = original;
+  void proto;
+  if (!/INTELLIGENCE INDEX/.test(html)) throw new Error('no index section');
+  if (html.includes('doc1973_orders')) throw new Error('still printing raw document ids');
+  if (!html.includes(held[0].title)) throw new Error('a held document is not named by its title');
+  if (!/REQUIRED FOR THE 1973 CODA/.test(html)) throw new Error('the coda requirement is not surfaced');
+  if (!new RegExp(`${held.length} / ${intelMod.codaRequirement()}`).test(html)) {
+    throw new Error(`the coda counter does not read ${held.length} / ${intelMod.codaRequirement()}`);
+  }
+  if (!/not recovered/.test(html)) throw new Error('unfound documents are not shown as missing');
+  return `${held.length}/${intelMod.codaRequirement()} required · ${intelMod.INTELLIGENCE.length} listed`;
 });
 
 check('Chapter 07 objective count matches its mission definition', () => {

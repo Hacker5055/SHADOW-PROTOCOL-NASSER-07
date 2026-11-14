@@ -151,6 +151,12 @@ Exit criteria: cutscenes can be skipped, paused and subtitled without desync.
     box 07-B as the sequel hook, and an ending card in the debrief.
   - **Outstanding:** the tower is lift-only (no stair route, no exterior climb), each floor is a
     single arena room, and Zidan / the Curator are speakers rather than fightable actors.
+- Endings: all four are reachable and mutually exclusive — `CLEAN_HANDS`, `THE_LEDGER`,
+  `INHERITANCE`, and the secret `THE QUIET CHOICE` (burn the ledger, keep both alliances,
+  lose nobody, complete the archive). One test walks each decision to its ending.
+- Intelligence: one manifest, 39 documents, 16 required for the 1973 coda. Every id a level
+  records exists in the manifest and every required id is awarded by a level; both
+  directions are tested, and each chapter declares no more documents than it can award.
 - Save/load, chapter select, New Game Plus carrying documents and unlocks
 - Graphics settings matrix, frame-time budget, load times, crash sweep
 - Localisation pass, accessibility pass, final QC

@@ -154,7 +154,8 @@ Taher's grave in Mansoura.
   vertical fight, executive level, helipad.
 - **Final confrontation** with Zidan (or with the Curator's successor if Zidan died in Ch. 06).
 - **Critical decision:** what to do with the ledger — **publish**, **leverage**, or **burn**.
-- **Epilogue** per ending, plus a 1973 coda if all 21 documents were found.
+- **Epilogue** per ending, plus a 1973 coda if every document on the campaign's main path
+  was found (see the intelligence manifest's `codaRequirement()`).
 - **Sequel hook:** a second box number — **07-B** — appears in a file Nasser did not open.
 
 ---

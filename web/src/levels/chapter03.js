@@ -196,6 +196,27 @@ export function buildArchiveMission(game, world) {
     game.hud.feed('INTELLIGENCE — ledger, second half recovered', 'intel');
   }, true);
 
+  // 3a. Two reclassification slips, pinned inside the stacks. They are the
+  // paper trail behind the forensics result: somebody moved this file twice,
+  // five years apart, and signed it both times.
+  const slips = [
+    { id: 'arch_1974', z: archive.z - archive.d / 2 + 5.5, x: archive.x - 3.0,
+      title: 'Reclassification slip, 1974',
+      body: 'BOX 07 moved from AMETHYST to the standing collection. Reason given: "routine review". Signed with a block: A.Z. Zidan was a captain in 1974.' },
+    { id: 'arch_1985', z: archive.z - archive.d / 2 + 10.5, x: archive.x + 3.0,
+      title: 'Reclassification slip, 1985',
+      body: 'BOX 07 moved again, this time out of the catalogue entirely. Reason: "no surviving operational interest". The same block signature, eleven years older and no less legible.' }
+  ];
+  for (const slip of slips) {
+    world.addBox(slip.x, 1.1, slip.z, 1.4, 0.08, 0.9, MAT.wood(), { solid: false, blockVision: false });
+    world.addTrigger(`ch03_slip_${slip.id}`, { x: slip.x, y: 1, z: slip.z }, 2.2, () => {
+      if (state[slip.id]) return;
+      state[slip.id] = true;
+      mission.addIntel({ id: slip.id, title: slip.title, era: 'modern', body: slip.body });
+      game.hud.feed(`INTELLIGENCE — ${slip.title}`, 'intel');
+    }, true);
+  }
+
   // 3b. Forensics table — prove the file was edited (Chapter 03 design beat).
   const forensicsPos = { x: archive.x + 6.5, y: 1, z: archive.z - 2 };
   world.addTrigger('ch03_forensics', forensicsPos, 3.4, () => {
@@ -505,8 +526,8 @@ function openForensicsDesk(game, mission, state) {
         state.forensicsDone = true;
         state.forensicsProven = true;
         mission.addIntel({
-          id: 'box07_reclassified',
-          title: 'Box 07 — reclassification proof',
+          id: 'forensics_report',
+          title: 'Ink analysis — archive floor',
           era: 'modern',
           body: `${summary.findings.length} fields overwritten. ` +
             summary.findings.map((f) => `${f.label}: ${f.shown} over ${f.underneath}`).join(' · ')

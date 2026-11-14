@@ -123,7 +123,7 @@ Chapters are **data, not code**. Each mission is a `USPMissionData`:
 - identity (id, chapter index, bilingual titles, code, synopsis)
 - setup (era, protagonist, start transform, loadout, squad spawns, difficulty, night vision)
 - objectives (`FSPObjective[]`, primary/optional/hidden, marker locations)
-- intel (`FSPIntelEntry[]`, 21 documents campaign-wide)
+- intel (`FSPIntelEntry[]`, 39 documents campaign-wide: 16 required for the 1973 coda, the rest optional)
 - dialogue beats (trigger id → bilingual lines)
 - cinematics (opening/closing `ULevelSequence`, ambience, time of day)
 - outcome flags (`FlagsOnComplete` → ending resolution)
@@ -564,6 +564,61 @@ campaign-standing line.
 - The atrium fight is horizontal on the balcony ring; there is no vertical flanking.
 - Zidan and the Curator appear as scene speakers only — neither is a fightable actor.
 
+## 12.7 The intelligence manifest and the coda (cross-chapter)
+
+The collectible-document system had the same shape of bug as the ending flags, and it
+took the same fix: **make the reader and the writer agree.**
+
+`game/intel.js` is the manifest. Chapters award documents with `mission.addIntel({id})`.
+Nothing enforced a relationship between the two, and they had drifted badly:
+
+- **Nine manifest entries were never recorded by any level.** Chapters 03–07 simply had
+  no code for them. Three more were recorded *after* the gate that required them.
+- **Seven ids the levels did record were missing from the manifest** — `ledger_half_two`,
+  `ch04_tap_log`, `curator_ledger`, `shadow_directive` and others. They appeared in the
+  player's log and nowhere in the dossier.
+- **Chapter 07's 1973 epilogue is gated on finding every document.** With only 12 of the
+  21 manifest ids reachable, the gate was not hard, it was unsatisfiable: a player could
+  collect everything that existed and the coda would never fire.
+- **Four chapters promised more dots than they had documents.** `intelTotal` is
+  hand-written per mission, and chapters 04, 05, 06 and 07 each declared more than they
+  could award (5/4, 4/3, 6/3, 5/2). The debrief drew empty dots nobody could fill.
+
+What the fixes establish:
+
+1. **One manifest, two directions checked.** A test scans every `addIntel` call in every
+   level file and fails if an id is recorded that the manifest does not list, and a second
+   test fails if a listed document is required by the coda but awarded by nothing.
+2. **The coda's requirement is derived, not declared.** `codaRequirement()` counts the
+   manifest minus two categories: `epilogue` documents (awarded *by* the epilogue, so
+   requiring them would be circular) and `missable` documents (behind optional objectives,
+   world pickups, the forensic minigame, KONSUL's survival branch, or chapter 05's
+   deliberately over-subscribed recovery window). Requiring a missable document makes the
+   coda unreachable for a player who skipped one crate, and chapter 05 *guarantees* a loss.
+3. **`intelTotal` ≤ available.** A test walks every registered mission and fails if it
+   declares more documents than its chapter has. Four chapters were failing before.
+4. **The two counters are separate.** `mission.intelFound` is what this mission yielded;
+   `mission.intelCarried` is what the campaign already had. Seeding the log from the save
+   without splitting them made the chapter 07 debrief read "14 / 5".
+5. **The dossier reads the manifest.** It used to print `Object.keys(p.intel).join(' · ')`
+   — raw ids like `doc1973_orders · nkg_roster`. It now lists every document by title,
+   greyed out if unfound, marked OPTIONAL where applicable, with a running
+   `n / 16 REQUIRED FOR THE 1973 CODA` counter.
+
+**The secret ending.** `QUIET_CHOICE` had a title, no copy, and no path to it — a dangling
+string in `resolveEnding()`'s title table. It is now the campaign's secret fourth ending:
+burn the ledger, keep both alliances, lose nobody, find the whole archive. It is checked
+*first* in the resolver, so it overrides the public three rather than being shadowed by
+them, and a test removes each of its four conditions in turn to prove none of them is
+decorative.
+
+### Known limitations
+
+- Documents are awarded by triggers, not picked up off a surface. The evidence markers in
+  chapters 01 and 02 are physical; the rest are beat rewards.
+- The manifest's Arabic copy is written but never rendered in the dossier, which is English
+  only. The ending and intel *bodies* are bilingual.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.
@@ -583,7 +638,7 @@ the ones that ship. Keeping this table honest is how drift gets caught.
 | `levels/chapter07.js` + `libTower.js` — harbour, lift ascent, sleeping per-floor garrisons | none yet | UE: authored `L_Chapter07_Meridian` with real `SetActorLocation` lift movement between world-partition cells, and each garrison spawned on a streaming trigger rather than hidden up front |
 | `ui/hud.js showChoice()` — branching decision card | `ASPGameMode::PushSubtitle` + UMG dialog | UE: author the dialog as a widget; the flag plumbing (`USPProgressSubsystem::SetFlag`) already exists |
 | `game/game.js` — spawn wiring, difficulty scaling | `ASPGameMode`, `ASPGrayboxGameMode` | Same responsibilities, plus save/load |
-| `game/intel.js` — 21 bilingual documents | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: 21 documents campaign-wide |
+| `game/intel.js` — 39 bilingual documents, 16 of them coda-required | `FSPIntelEntry` + `ASPIntelPickup` | Content parity: one manifest, every id a level records exists in it |
 | `game/save.js` — checkpoint + campaign state | `USPSaveGame`, `USPProgressSubsystem` | UE persists to slot files + config |
 | `ui/menu.js`, `ui/hud.js` | `USPHUDWidget`, `USPPauseMenuWidget` | UE HUD data model is C++; layout is UMG |
 | `engine/physics.js` — collider push-out | engine `UCharacterMovementComponent` collision | Not reimplemented |

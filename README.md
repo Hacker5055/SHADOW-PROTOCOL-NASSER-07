@@ -15,7 +15,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | Path | What it is | Status |
 |---|---|---|
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
-| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard), 06 *Shadow Protocol* (desert bunker) and 07 *The Final Legacy* (Alexandria tower + endings), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 93 automated checks passing |
+| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard), 06 *Shadow Protocol* (desert bunker) and 07 *The Final Legacy* (Alexandria tower + endings), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 101 automated checks passing |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
 | `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 
@@ -138,7 +138,10 @@ an eight-storey atrium fought around a void, an executive boardroom, and an open
 the helipad. Whoever is standing on the pad depends on Chapter 06: Zidan if he lived, the
 Curator if he did not. The ledger decision — **publish / leverage / burn** — is the last
 branch in the campaign and the one that produces the ending card, with the 1973 coda only
-if all 21 documents were found, and archive box **07-B** as the sequel hook.
+if every document a straight playthrough can be sure of was found, and archive box **07-B**
+as the sequel hook. The campaign's four endings — `CLEAN HANDS`, `THE LEDGER`, `INHERITANCE`
+and the secret `THE QUIET CHOICE` — are all reachable, mutually exclusive, and tests walk
+each one.
 
 Chapter 06, *Shadow Protocol*, is the campaign's narrative core: a 1960s Soviet-built
 bunker 60 m under a Western Desert salt flat, four descending rings, a mantrap that is a
@@ -167,7 +170,7 @@ flag. KONSUL's ending fork writes `KONSUL_ALIVE` or `KONSUL_DEAD` for Chapter 06
 `docs/04_ROADMAP.md` tracks the ten milestones from the brief against what is actually
 implemented. Nothing is marked complete unless it is playable or compilable.
 
-- **M1 — vertical slice:** done and verified (`web/`, 93 automated checks passing across
+- **M1 — vertical slice:** done and verified (`web/`, 101 automated checks passing across
   Chapters 01–07, including flood-fill proofs that the chapter 04 streets, the chapter 06
   bunker and every chapter 07 floor are connected, not merely drawn).
 - **M2 — UE5 project skeleton:** done at source level; **not compiled**.

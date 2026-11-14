@@ -171,6 +171,14 @@ export class SaveSystem {
   resolveEnding() {
     const f = this.progress.flags;
     const deaths = this.progress.casualties || 0;
+    // The secret epilogue. Burn the ledger, keep every alliance intact, and
+    // lose nobody: Nasser takes the whole record home instead of either
+    // surrendering it or weaponising it. It is unreachable by any of the three
+    // public routes, which is the point — and it is *checked first*, so it
+    // overrides them rather than being overridden by them.
+    if (f.BURNED_LEDGER && f.TRUST_ADEL && f.SAVED_MARIAM && f.FOUND_ALL_INTEL && deaths === 0) {
+      return 'QUIET_CHOICE';
+    }
     // Publish, and the whole campaign's other choices stay clean with you.
     if (f.TRUST_ADEL && f.SAVED_MARIAM && f.PUBLISHED_LEDGER) return 'CLEAN_HANDS';
     if (f.BURNED_LEDGER) return 'INHERITANCE';
@@ -204,6 +212,11 @@ export class SaveSystem {
         ar: 'الدفتر',
         en: 'Nasser keeps the ledger. The Curator is alive, comfortable, and useful. Within six months the Directorate has new names at the top and the same arithmetic at the bottom. Nasser is promoted. He tells himself he bought time.',
         tone: 'COLD · AMBIGUOUS'
+      },
+      QUIET_CHOICE: {
+        ar: 'الاختيار الهادئ',
+        en: 'He burns the ledger and takes nothing from the tower but the original page, which he gives to a university archive with no conditions and no name attached. Zidan is never charged — there is no evidence left to charge him with. Nasser is posted to a records office in Mansoura, where he is, for the first time in the campaign, boring. Every document he ever recovered sits in a public reading room with his grandfather\'s name spelled correctly.',
+        tone: 'QUIET · EARNED'
       },
       INHERITANCE: {
         ar: 'الإرث',
