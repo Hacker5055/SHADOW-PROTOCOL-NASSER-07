@@ -23,6 +23,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { extractGlbTextures, textureDecoderAvailable } from './glbtexture.mjs';
 
 globalThis.self = globalThis;
 globalThis.ProgressEvent = globalThis.ProgressEvent
@@ -50,6 +51,7 @@ const POSE = argOf('--pose', 'idle');
 const OVERRIDE = argOf('--override', '');
 const ARMS = argOf('--arms', 'on');
 const SOURCED = argOf('--sourced', '');
+const SUBJECT = argOf('--subject', 'fp');
 const WEAPON = argOf('--weapon', 'akm');
 const W = parseInt(argOf('--w', '640'), 10);
 const H = parseInt(argOf('--h', '360'), 10);
@@ -88,6 +90,17 @@ const { buildWeaponModel } = await import(path.join(ROOT, 'src/game/models.js'))
 // --arms off renders the weapon alone, which is how a candidate model is judged.
 const rig = ARMS === 'off' ? null : await loadSoldierArmsFromGLB(`${BASE}/models/Soldier.glb`);
 const view = new FirstPersonView(rig ? { arms: rig } : {});
+
+// Decode Soldier.glb's embedded diffuse so the arms are not rendered white.
+// The browser does this natively; under Node it needs the helper below.
+let armTex = null;
+if (rig && textureDecoderAvailable) {
+  const decoded = extractGlbTextures(path.join(PUBLIC, 'models/Soldier.glb'));
+  if (decoded && decoded.images) {
+    armTex = decoded.images[decoded.baseColorImage] || decoded.images.find((i) => i) || null;
+  }
+  if (armTex) console.log(JSON.stringify({ armTexture: `${armTex.width}x${armTex.height}` }));
+}
 if (OVERRIDE) {
   const [x, y, z, rx, ry, rz] = OVERRIDE.split(',').map(Number);
   const { ARM_POSES } = await import(path.join(ROOT, 'src/game/viewmodel.js'));
@@ -171,13 +184,14 @@ for (let i = 0; i < 90; i++) view.update(1 / 60, ctx);
 // The game parents the rig to the camera (player.js: this.viewCam.add(fpView.root)),
 // so the render camera must be the PARENT here too, or every view-space
 // constant is measured from the wrong origin.
-const cam = new THREE.PerspectiveCamera(80, W / H, 0.02, 60);
+var cam = new THREE.PerspectiveCamera(80, W / H, 0.02, 60);
 cam.position.set(0, 0, 0);
 cam.add(view.root);
 cam.updateMatrixWorld(true);
 cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
 
 // ---------------------------------------------------------------- rasteriser
+function renderScene(subject, camera, outPath) {
 const buf = new Float32Array(W * H * 3);
 for (let y = 0; y < H; y++) {
   const t = y / H;
@@ -192,7 +206,7 @@ for (let y = 0; y < H; y++) {
 }
 const depth = new Float32Array(W * H).fill(Infinity);
 const light = new THREE.Vector3(0.35, 0.8, 0.5).normalize();
-const NEAR = -cam.near;
+const NEAR = -camera.near;
 
 function shadeOf(tri, matColor) {
   const e1 = tri[1].clone().sub(tri[0]);
@@ -200,20 +214,24 @@ function shadeOf(tri, matColor) {
   const n = e1.cross(e2);
   if (n.lengthSq() < 1e-12) return null;
   n.normalize();
-  const viewDir = tri[0].clone().applyMatrix4(cam.matrixWorldInverse).normalize();
+  const viewDir = tri[0].clone().applyMatrix4(camera.matrixWorldInverse).normalize();
   if (n.dot(viewDir) > 0) n.negate();               // face the viewer
   const lam = Math.max(0, n.dot(light));
   const fill = 0.18;
   return { lam, fill, color: matColor };
 }
 
+let __drawn = 0, __culled = 0, __meshes = 0;
 const _v = new THREE.Vector3();
-for (const obj of [view.root]) {
+for (const obj of [subject]) {
   obj.updateMatrixWorld(true);
   obj.traverse((o) => {
     if (!o.isMesh || !o.visible) return;
+    __meshes++;
     const g = o.geometry;
     const pos = g.attributes.position;
+    const uvAttr = g.attributes.uv;
+    const useTex = !!(armTex && uvAttr && o.isSkinnedMesh);
     const index = g.index;
     const count = index ? index.count : pos.count;
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
@@ -224,20 +242,23 @@ for (const obj of [view.root]) {
     for (let t = 0; t < count; t += 3) {
       // World-space triangle, with CPU skinning when needed.
       const tri = [];
+      const uvs = [];
       for (let k = 0; k < 3; k++) {
         const vi = index ? index.getX(t + k) : t + k;
         const p = new THREE.Vector3().fromBufferAttribute(pos, vi);
         if (skinned) o.applyBoneTransform(vi, p);
         tri.push(p.applyMatrix4(o.matrixWorld));
+        if (useTex) uvs.push([uvAttr.getX(vi), uvAttr.getY(vi)]);
       }
       const sh = shadeOf(tri, base);
       if (!sh) continue;
+      __drawn++;
 
       // Clip against the near plane in VIEW space. Without this, a triangle
       // straddling the camera plane projects to infinity and smears a huge
       // ribbon across the frame — which is exactly how this tool was
       // misleading me before the clip went in.
-      const vp = tri.map((p) => p.clone().applyMatrix4(cam.matrixWorldInverse));
+      const vp = tri.map((p) => p.clone().applyMatrix4(camera.matrixWorldInverse));
       const poly = [];
       for (let i = 0; i < 3; i++) {
         const a = vp[i];
@@ -250,15 +271,26 @@ for (const obj of [view.root]) {
           poly.push(a.clone().lerp(b, f));
         }
       }
-      if (poly.length < 3) continue;
+      if (poly.length < 3) { __culled++; continue; }
 
+      if (__drawn < 3 && process.env.FPDEBUG) {
+        console.log('DBG poly', poly.length, 'first', poly[0].toArray().map((n) => +n.toFixed(3)),
+          'camNear', camera.near, 'proj', camera.projectionMatrix.elements.slice(0, 4).map((n) => +n.toFixed(3)));
+      }
+      // `poly` is already in VIEW space, so apply the projection matrix
+      // directly. Calling Vector3.project() here would apply matrixWorldInverse
+      // a second time — harmless while this only rendered the viewmodel (whose
+      // camera sits at the origin with an identity matrix), but it threw any
+      // scene rendered through a real camera completely off screen.
       const scr = poly.map((p) => {
-        const c = p.clone().project(cam);
-        return { x: (c.x * 0.5 + 0.5) * W, y: (-c.y * 0.5 + 0.5) * H, z: c.z };
+        const v4 = new THREE.Vector4(p.x, p.y, p.z, 1).applyMatrix4(camera.projectionMatrix);
+        const w4 = v4.w || 1e-6;
+        return { x: (v4.x / w4 * 0.5 + 0.5) * W, y: (-v4.y / w4 * 0.5 + 0.5) * H, z: v4.z / w4 };
       });
       // Fan-triangulate the clipped polygon.
       for (let f = 1; f + 1 < scr.length; f++) {
         const s = [scr[0], scr[f], scr[f + 1]];
+        if (__drawn < 3 && process.env.FPDEBUG) console.log('DBG scr', s.map((q) => [Math.round(q.x), Math.round(q.y), +q.z.toFixed(3)]));
         const minX = Math.max(0, Math.floor(Math.min(s[0].x, s[1].x, s[2].x)));
         const maxX = Math.min(W - 1, Math.ceil(Math.max(s[0].x, s[1].x, s[2].x)));
         const minY = Math.max(0, Math.floor(Math.min(s[0].y, s[1].y, s[2].y)));
@@ -279,9 +311,22 @@ for (const obj of [view.root]) {
             const i = y * W + x;
             if (z >= depth[i]) continue;
             depth[i] = z;
-            buf[i * 3] = sh.color[0] * lit;
-            buf[i * 3 + 1] = sh.color[1] * lit;
-            buf[i * 3 + 2] = sh.color[2] * lit;
+            let cr = sh.color[0], cg = sh.color[1], cb = sh.color[2];
+            if (useTex) {
+              // The clip/fan can change the triangle, so sample with the same
+              // barycentric weights the raster pass computed.
+              const u = w0 * uvs[0][0] + w1 * uvs[1][0] + w2 * uvs[2][0];
+              const v = w0 * uvs[0][1] + w1 * uvs[1][1] + w2 * uvs[2][1];
+              const tx = Math.min(armTex.width - 1, Math.max(0, Math.floor((u % 1 + 1) % 1 * armTex.width)));
+              const ty = Math.min(armTex.height - 1, Math.max(0, Math.floor((1 - ((v % 1 + 1) % 1)) * armTex.height)));
+              const ti = (ty * armTex.width + tx) * 3;
+              cr = armTex.data[ti] / 255;
+              cg = armTex.data[ti + 1] / 255;
+              cb = armTex.data[ti + 2] / 255;
+            }
+            buf[i * 3] = cr * lit;
+            buf[i * 3 + 1] = cg * lit;
+            buf[i * 3 + 2] = cb * lit;
           }
         }
       }
@@ -293,10 +338,10 @@ const bytes = Buffer.alloc(W * H * 3);
 for (let i = 0; i < W * H * 3; i++) {
   bytes[i] = Math.round(Math.max(0, Math.min(1, buf[i])) * 255);
 }
-fs.writeFileSync(OUT, bytes);
+fs.writeFileSync(outPath, bytes);
 
 // Also emit a PNG next to it so the result can be looked at without PIL.
-const pngPath = OUT.replace(/\.raw$/, '') + '.png';
+const pngPath = outPath.replace(/\.raw$/, '') + '.png';
 {
   const raw = Buffer.alloc((W * 3 + 1) * H);
   for (let y = 0; y < H; y++) {
@@ -310,10 +355,10 @@ const pngPath = OUT.replace(/\.raw$/, '') + '.png';
     crc.writeUInt32BE(zlib.crc32 ? zlib.crc32(body) : crc32(body));
     return Buffer.concat([len, body, crc]);
   };
-  function crc32(buf) {
+  function crc32(buf2) {
     let c, crc = 0xffffffff;
-    for (let n = 0; n < buf.length; n++) {
-      c = (crc ^ buf[n]) & 0xff;
+    for (let n = 0; n < buf2.length; n++) {
+      c = (crc ^ buf2[n]) & 0xff;
       for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
       crc = (crc >>> 8) ^ c;
     }
@@ -330,28 +375,70 @@ const pngPath = OUT.replace(/\.raw$/, '') + '.png';
   ]);
   fs.writeFileSync(pngPath, png);
 }
-
-// Report what was drawn so the caller has numbers as well as pixels.
 let covered = 0;
-let armPx = 0;
 for (let i = 0; i < W * H; i++) if (depth[i] < Infinity) covered++;
-const hands = {};
-for (const side of ['right', 'left']) {
-  const b = view.rig && view.rig[`${side}Hand`];
-  if (b) hands[side] = b.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3));
+return { pngPath, coverage: +(covered / (W * H)).toFixed(3), drawnTris: __drawn, culledTris: __culled, meshes: __meshes };
 }
-const gunBox = new THREE.Box3().setFromObject(gun);
-const gunSize = gunBox.getSize(new THREE.Vector3());
-const ndc = gunBox.getCenter(new THREE.Vector3()).project(cam);
+server.close();
 
-console.log(JSON.stringify({
-  out: OUT, png: pngPath, size: [W, H], pose: POSE, weapon: WEAPON,
-  coverage: +(covered / (W * H)).toFixed(3),
-  armMeshTriangles: rig && rig.stats ? rig.stats.armTriangles : null,
-  gunLength: +gunSize.z.toFixed(3),
-  gunCentreNdc: [+ndc.x.toFixed(2), +ndc.y.toFixed(2)],
-  hands,
-  mount: view.weaponMount.position.toArray().map((n) => +n.toFixed(3))
-}, null, 2));
+// ---------------------------------------------------------------- entry point
+if (SUBJECT === 'soldier') {
+  const { buildSoldier, PALETTE } = await import(path.join(ROOT, 'src/game/models.js'));
+  const who = argOf('--who', 'egypt1973');
+  const withWeapon = argOf('--noweapon', '0') !== '1';
+  // buildSoldier returns { group, parts, mats, pose }, not a bare Object3D.
+  const built = buildSoldier(PALETTE[who] || PALETTE.egypt1973);
+  const body = built.group;
+  body.updateMatrixWorld(true);
+  // Frame on the BODY only. Parenting the rifle to the posed right hand and
+  // then measuring the whole group bakes the arm's rotation into the box and
+  // pushes the camera off-centre — the subject ends up half out of frame.
+  const box = new THREE.Box3().setFromObject(body);
+  const size = box.getSize(new THREE.Vector3());
+  const mid = box.getCenter(new THREE.Vector3());
+  const sc = new THREE.PerspectiveCamera(34, W / H, 0.05, 60);
+  // Frame from the bounding sphere so the subject is centred at any aspect or
+  // size. Hand-placed offsets put the body half out of frame.
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const vFov = THREE.MathUtils.degToRad(sc.fov);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (W / H));
+  const dist = Math.max(sphere.radius / Math.tan(vFov / 2), sphere.radius / Math.tan(hFov / 2)) * 1.22;
+  if (process.env.FPDEBUG) console.log('DBG frame centre', sphere.center.toArray().map((n) => +n.toFixed(2)), 'r', sphere.radius.toFixed(2), 'dist', dist.toFixed(2), 'aspect', (W / H).toFixed(2));
+  const yaw = parseFloat(argOf('--yaw', '0.6'));
+  sc.position.set(
+    sphere.center.x + Math.sin(yaw) * dist,
+    sphere.center.y + parseFloat(argOf('--elev', '0.10')) * dist,
+    sphere.center.z + Math.cos(yaw) * dist
+  );
+  sc.lookAt(sphere.center);
+  sc.updateMatrixWorld(true);
+  sc.matrixWorldInverse.copy(sc.matrixWorld).invert();
+  const res = renderScene(body, sc, OUT);
+  let meshes = 0;
+  body.traverse((o) => { if (o.isMesh) meshes++; });
+  console.log(JSON.stringify({
+    subject: 'soldier', palette: who, weapon: withWeapon,
+    height: +size.y.toFixed(2), meshes: res.meshes, png: res.pngPath, coverage: res.coverage,
+    drawnTris: res.drawnTris, culledTris: res.culledTris
+  }, null, 2));
+} else {
+  const res = renderScene(view.root, cam, OUT);
+  const hands = {};
+  for (const side of ['right', 'left']) {
+    const b = view.rig && view.rig[`${side}Hand`];
+    if (b) hands[side] = b.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3));
+  }
+  const gunBox = new THREE.Box3().setFromObject(gun);
+  const ndc = gunBox.getCenter(new THREE.Vector3()).project(cam);
+  const totalTris = (() => { let n = 0; view.root.traverse((o) => { if (o.isMesh && o.geometry.index) n += o.geometry.index.count / 3; }); return n; })();
+  console.log(JSON.stringify({
+    out: OUT, png: res.pngPath, size: [W, H], pose: POSE, weapon: WEAPON, sourced: SOURCED || null,
+    coverage: res.coverage,
+    triangles: totalTris,
+    gunCentreNdc: [+ndc.x.toFixed(2), +ndc.y.toFixed(2)],
+    hands,
+    mount: view.weaponMount.position.toArray().map((n) => +n.toFixed(3))
+  }, null, 2));
+}
 
 server.close();

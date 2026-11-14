@@ -747,6 +747,25 @@ muzzle marker at `(0, -0.039, -0.630)`. Before/after in
 `docs/images/akm-before-after.png`, candidate comparison in
 `docs/images/weapon-candidates.png`.
 
+**Tooling: the CPU rasteriser got two real fixes.** Both were latent bugs that only surfaced
+once it rendered something other than the viewmodel.
+
+- `Vector3.project()` was being called on points that were *already* in view space, so
+  `matrixWorldInverse` was applied twice. Harmless while the only camera sat at the origin
+  with an identity matrix; it put every vertex off-screen for a real camera.
+- Its triangles now clip against the near plane before projecting, without which a triangle
+  straddling the camera smears a ribbon across the frame.
+
+It also decodes assets properly now: `tools/glbtexture.mjs` pulls the embedded images out of
+a `.glb` and, crucially, follows the **material's baseColorTexture index** rather than taking
+the first image. `Soldier.glb` carries a normal map in slot 0, so the naive choice painted the
+arms purple. Textures are sampled per-pixel with the raster pass's own barycentric weights
+and V flipped to match three.js. `--subject soldier` renders a full procedural character, so
+body art can be reviewed without a browser.
+
+Reference frames: `docs/images/first-person-akm-cc0.png`, `first-person-akm-ads.png`,
+`soldier-1973.png`, and both side by side in `weapon-and-body.png`.
+
 **Still primitive, stated plainly:** the other twelve weapons (Port Said, RPD, RPG-7, M4,
 MP5SD, pistol, sniper, and the enemy variants) still use box geometry. The remaining CC0
 packs — Quaternius *Ultimate Guns Pack* (40 models) and *Flat Guns West* (10) — are already

@@ -116,6 +116,11 @@ export function installStubs() {
   globalThis.requestAnimationFrame = win.requestAnimationFrame;
   globalThis.getComputedStyle = win.getComputedStyle;
   globalThis.HTMLCanvasElement = StubCanvas;
+  // A real (tiny) ImageDecoder would let GLTFLoader decode the embedded JPEGs.
+  // The stubs deliberately do not: this file backs the gameplay test suite,
+  // where textures are irrelevant, and a decoder here would only slow it down.
+  // tools/fpview.mjs supplies its own loader decorator when it needs texture
+  // coordinates for the CPU rasteriser.
   globalThis.Image = class {};
   globalThis.__listeners = listeners;
 }
