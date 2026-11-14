@@ -61,6 +61,20 @@ cd web && npm run build && npm run preview
 | Objectives / map | Tab | Back |
 | Pause | Esc | Start |
 
+### Jump straight to a chapter
+
+The URL takes three optional parameters, so you do not have to replay six chapters to look at
+the last one:
+
+| URL | Effect |
+|---|---|
+| `?chapter=7` | Boots directly into Chapter 07 (*The Final Legacy*) |
+| `?chapter=3` | Any chapter 1–7 (`?chapter=2`, `?chapter=5`, …) |
+| `?unlock=all` | Unlocks all seven chapters in Chapter Select |
+| `?intel=all` | Marks every one of the 39 documents recovered — open the Campaign Dossier to read the archive and see the 1973 coda unlocked |
+
+Combine them: `?chapter=7&intel=all` starts the finale with a complete archive.
+
 **Arabic dialogue** is subtitled in both Arabic and English, and every recovered document
 can be read in both languages from the Campaign Dossier; toggle in Settings.
 

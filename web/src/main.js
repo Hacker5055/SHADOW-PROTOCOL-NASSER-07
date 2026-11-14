@@ -76,6 +76,43 @@ function start() {
   window.__SP__ = game;
   window.__SP_GAME__ = game;
 
+  // ---- deep link -----------------------------------------------------------
+  // `?chapter=7` boots straight into a chapter, and `?unlock=all` opens the
+  // whole campaign. Without this the only way to reach chapter 07 is to have a
+  // save that got there, which makes the last chapter impossible to show
+  // someone (or to smoke-test) without replaying six chapters first.
+  {
+    const params = new URLSearchParams(location.search);
+    const unlock = params.get('unlock');
+    if (unlock === 'all') {
+      game.save.setProgress((p) => {
+        p.chaptersUnlocked = 7;
+        p.chaptersCompleted = [1, 2, 3, 4, 5, 6];
+      });
+    }
+    const want = Number(params.get('chapter'));
+    if (want >= 1 && want <= 7) {
+      const id = [...game.missions.entries()]
+        .find(([, m]) => m.def.chapterIndex === want)?.[0];
+      if (id) {
+        game.save.setProgress((p) => { p.chaptersUnlocked = Math.max(p.chaptersUnlocked, want); });
+        game.menu.hideAll();
+        game.startMission(id, { fromCheckpoint: false });
+        game.requestLock();
+      }
+    }
+    const intel = params.get('intel');
+    if (intel === 'all') {
+      // Every document, for looking at the dossier and the 1973 coda.
+      import('./game/intel.js').then(({ INTELLIGENCE }) => {
+        game.save.setProgress((p) => {
+          p.intel = p.intel || {};
+          for (const d of INTELLIGENCE) p.intel[d.id] = true;
+        });
+      });
+    }
+  }
+
   const boot = document.getElementById('boot');
   if (boot) {
     boot.querySelector('.hint').textContent = 'READY';
