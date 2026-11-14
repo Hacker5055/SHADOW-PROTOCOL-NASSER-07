@@ -334,13 +334,44 @@ export function soldierToFirstPersonArms(gltfScene) {
   const sw = geo.attributes.skinWeight;
   const triCount = idx ? idx.count / 3 : pos.count / 3;
 
+  // Compact skinIndex/skinWeight before anything reads them.
+  //
+  // Soldier.glb stores these two attributes in an INTERLEAVED bufferView with a
+  // 32-byte stride. GLTFLoader builds the typed array straight off that view, so
+  // `array.length` came out at 234,400 for a 7,325-vertex mesh that only needs
+  // 29,300 — eight vertices' worth of bytes per vertex. `getComponent()` walks
+  // the accessor's own stride and is correct; the raw `array` is not.
+  //
+  // The arm filter below used to index the raw array through getComponent, so it
+  // was reading joints and weights belonging to other vertices. Nearly every
+  // triangle then looked arm-dominated (2,756 of 11,186 kept, spanning 184
+  // metres of the model) and the first-person view drew the soldier's whole body
+  // around the camera instead of two forearms. Rebuilding the attributes from
+  // the authoritative accessor gives 29,300 entries, a max joint index of 48
+  // (the skeleton really is 49 bones) and weight sums of exactly 1.000.
+  {
+    const vertCount = si.count;
+    const cj = new Uint16Array(vertCount * 4);
+    const cw = new Float32Array(vertCount * 4);
+    for (let v = 0; v < vertCount; v++) {
+      for (let k = 0; k < 4; k++) {
+        cj[v * 4 + k] = si.getComponent(v, k);
+        cw[v * 4 + k] = sw.getComponent(v, k);
+      }
+    }
+    geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(cj, 4));
+    geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(cw, 4));
+  }
+  const si2 = geo.attributes.skinIndex;
+  const sw2 = geo.attributes.skinWeight;
+
   // How much of each vertex is driven by arm bones (0..1).
   const armWeight = new Float32Array(pos.count);
   for (let v = 0; v < pos.count; v++) {
     let s = 0;
     for (let k = 0; k < 4; k++) {
-      const w = sw.getComponent(v, k);
-      if (w > 0 && isArmBone[si.getComponent(v, k)]) s += w;
+      const w = sw2.getComponent(v, k);
+      if (w > 0 && isArmBone[si2.getComponent(v, k)]) s += w;
     }
     armWeight[v] = s;
   }
@@ -385,8 +416,8 @@ export function soldierToFirstPersonArms(gltfScene) {
     if (nrm) outNrm.push(nrm.getX(v), nrm.getY(v), nrm.getZ(v));
     if (uv) outUv.push(uv.getX(v), uv.getY(v));
     for (let k = 0; k < 4; k++) {
-      outSI.push(si.getComponent(v, k));
-      outSW.push(sw.getComponent(v, k));
+      outSI.push(si2.getComponent(v, k));
+      outSW.push(sw2.getComponent(v, k));
     }
     return n;
   };

@@ -87,9 +87,18 @@ export function buildCrossingMission(game, world) {
 
   // ------------------------------------------------ squad
   world.friendSpawns.push(
-    { callsign: 'FANG', nameEn: 'Lt. Karim El-Sayed', nameAr: 'كريم السيد', role: 'marksman', slot: 0, pos: { x: -2.2, y: 0, z: 31 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak' },
-    { callsign: 'JACKAL', nameEn: 'Sgt. Hoda Mansour', nameAr: 'هدى منصور', role: 'engineer', slot: 1, pos: { x: 2.2, y: 0, z: 31 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak' },
-    { callsign: 'MOUSE', nameEn: 'Sgt. Adel Farhan', nameAr: 'عادل فرحان', role: 'comms', slot: 2, pos: { x: 0, y: 0, z: 33 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak', radio: true }
+    // MOUSE used to stand at z = 33 with the player at z = 34 — one metre apart.
+    // The player spawned inside his chest, so the camera framed the inside of a
+    // squadmate's torso: a solid olive wall filling the screen at the exact
+    // moment the mission starts, which reads as a black screen.
+    //
+    // The player spawns facing -Z (yaw 0, forward = (-sin yaw, -cos yaw)), so
+    // "in front of the camera" means LARGER z, not smaller. The staging line is
+    // a briefing, so the squad stands in an arc three metres ahead, all of them
+    // in the opening shot and none of them on top of the player.
+    { callsign: 'FANG', nameEn: 'Lt. Karim El-Sayed', nameAr: 'كريم السيد', role: 'marksman', slot: 0, pos: { x: -2.4, y: 0, z: 37.2 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak' },
+    { callsign: 'JACKAL', nameEn: 'Sgt. Hoda Mansour', nameAr: 'هدى منصور', role: 'engineer', slot: 1, pos: { x: 2.4, y: 0, z: 37.2 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak' },
+    { callsign: 'MOUSE', nameEn: 'Sgt. Adel Farhan', nameAr: 'عادل فرحان', role: 'comms', slot: 2, pos: { x: 0, y: 0, z: 38.4 }, era: '1973', palette: PALETTE.egypt1973, weapon: 'enemy_ak', radio: true }
   );
 
   // ------------------------------------------------ enemies

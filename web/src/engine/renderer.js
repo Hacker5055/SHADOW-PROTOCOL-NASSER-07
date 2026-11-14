@@ -305,8 +305,13 @@ export class Renderer {
   bindViewModel(viewCam, viewRoot) {
     this.viewCam = viewCam;
     this.viewRoot = viewRoot;
+    // The arms/weapon rig is authored in VIEW SPACE — GRIP_POINTS, ARM_POSES and
+    // the muzzle offsets are all metres in front of the eye. It has to stay a
+    // child of the camera. `viewScene.add(viewRoot)` would reparent it to the
+    // scene root and drop it at the origin, ~34 m behind the player, where it is
+    // invisible. Only the camera needs to join the scene graph.
     if (viewCam && viewCam.parent !== this.viewScene) this.viewScene.add(viewCam);
-    if (viewRoot && viewRoot.parent !== this.viewScene) this.viewScene.add(viewRoot);
+    if (viewRoot && viewRoot.parent !== viewCam) viewCam.add(viewRoot);
   }
 
   render(dt, camOverride = null) {
@@ -331,17 +336,37 @@ export class Renderer {
     this.quadCam.quaternion.copy(cam.quaternion);
 
     const pr = this.renderer.getPixelRatio();
+
+    // The sky dome is a 600 m sphere centred on the camera so it can double as a
+    // horizon. The view camera only reaches 60 m, which clipped it away and left
+    // a flat black void above the terrain: the pass has to run with a far plane
+    // long enough to contain the dome.
+    const worldFar = cam.far;
+    cam.far = 900;
+    cam.updateProjectionMatrix();
     this.renderer.setRenderTarget(this.rt);
     this.renderer.render(this.scene, cam);
     this.renderer.setRenderTarget(null);
-    this.renderer.render(this.quadScene, this.quadCam);
+    cam.far = worldFar;
+    cam.updateProjectionMatrix();
     void pr;
+
+    this.renderer.render(this.quadScene, this.quadCam);
 
     // First-person arms and weapon, on top, with depth cleared so nothing in the
     // world can poke through them.
+    //
+    // autoClear MUST be off for this pass. The renderer defaults it to true, and
+    // a `render()` with autoClear on clears the colour buffer before drawing —
+    // so this call was wiping out the entire composited image above and leaving
+    // only the arms on black. clearDepth() already handles the depth buffer; the
+    // colour buffer must survive.
     if (this.viewCam && this.viewRoot) {
+      const autoClear = this.renderer.autoClear;
+      this.renderer.autoClear = false;
       this.renderer.clearDepth();
       this.renderer.render(this.viewScene, this.viewCam);
+      this.renderer.autoClear = autoClear;
     }
 
     if (this.shake.t > 0) {

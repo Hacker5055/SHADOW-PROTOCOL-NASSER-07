@@ -1315,7 +1315,20 @@ check('The first-person view model is actually attached to a rendered scene', ()
   const p = game.player;
   if (!r.viewScene) throw new Error('renderer has no view-model scene');
   if (p.viewCam.parent !== r.viewScene) throw new Error('view camera is not in the view-model scene');
-  if (p.fpView.root.parent !== r.viewScene) throw new Error('arms are not in the view-model scene');
+  // The arms hang off the CAMERA, not off the scene root.
+  //
+  // This assertion used to demand `fpView.root.parent === viewScene`, and the
+  // code satisfied it by calling `viewScene.add(viewRoot)`. That is a reparent,
+  // not an attach: three.js `add()` removes the object from its current parent,
+  // so the whole rig was lifted out of the camera's local space and dropped at
+  // the scene origin. GRIP_POINTS and ARM_POSES are authored in metres in front
+  // of the eye, so a rig at the origin sat ~34 m behind the player and rendered
+  // nothing but black. The rig must stay a child of the camera; what has to be
+  // true is that it is reachable from the scene graph the renderer draws.
+  if (p.fpView.root.parent !== p.viewCam) throw new Error('arms are not parented to the view camera');
+  let inScene = false;
+  for (let o = p.fpView.root; o; o = o.parent) if (o === r.viewScene) { inScene = true; break; }
+  if (!inScene) throw new Error('arms are not in the view-model scene graph');
   if (p.fpView.weaponMount.parent !== p.fpView.root) throw new Error('weapon mount is not under the view root');
   if (p.weapon.model.parent !== p.fpView.weaponMount) throw new Error('equipped weapon is not on the mount');
   const lights = r.viewScene.children.filter((c) => c.isLight).length;
@@ -1372,7 +1385,20 @@ check('The first-person view model is actually attached to a rendered scene', ()
   const p = game.player;
   if (!r.viewScene) throw new Error('renderer has no view-model scene');
   if (p.viewCam.parent !== r.viewScene) throw new Error('view camera is not in the view-model scene');
-  if (p.fpView.root.parent !== r.viewScene) throw new Error('arms are not in the view-model scene');
+  // The arms hang off the CAMERA, not off the scene root.
+  //
+  // This assertion used to demand `fpView.root.parent === viewScene`, and the
+  // code satisfied it by calling `viewScene.add(viewRoot)`. That is a reparent,
+  // not an attach: three.js `add()` removes the object from its current parent,
+  // so the whole rig was lifted out of the camera's local space and dropped at
+  // the scene origin. GRIP_POINTS and ARM_POSES are authored in metres in front
+  // of the eye, so a rig at the origin sat ~34 m behind the player and rendered
+  // nothing but black. The rig must stay a child of the camera; what has to be
+  // true is that it is reachable from the scene graph the renderer draws.
+  if (p.fpView.root.parent !== p.viewCam) throw new Error('arms are not parented to the view camera');
+  let inScene = false;
+  for (let o = p.fpView.root; o; o = o.parent) if (o === r.viewScene) { inScene = true; break; }
+  if (!inScene) throw new Error('arms are not in the view-model scene graph');
   if (p.fpView.weaponMount.parent !== p.fpView.root) throw new Error('weapon mount is not under the view root');
   if (p.weapon.model.parent !== p.fpView.weaponMount) throw new Error('equipped weapon is not on the mount');
   const lights = r.viewScene.children.filter((c) => c.isLight).length;

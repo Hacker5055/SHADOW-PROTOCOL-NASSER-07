@@ -348,7 +348,15 @@ export function applySourcedWeapon(runtime, fitted) {
 
   fitted.root.position.copy(old.position);
   fitted.root.rotation.copy(old.rotation);
-  fitted.root.scale.copy(old.scale);
+  // Do NOT copy old.scale over the fitted root.
+  //
+  // fitWeaponModel() puts the CC0 model into the frame the primitives were
+  // validated in by scaling this very object — 1.2992x for the AKM. The
+  // primitive model's scale is the identity, so `copy(old.scale)` silently
+  // threw that fit away and restored the raw asset length (0.723 m instead of
+  // 0.94 m). The rifle then sat too close and too short in the viewmodel: it
+  // read as a toy held against the lens.
+  fitted.root.scale.multiply(old.scale);
   fitted.root.userData.muzzle = fitted.root.userData.muzzle || new THREE.Object3D();
   // Muzzle marker in the fitted model's own space.
   fitted.root.userData.muzzle.position.copy(fitted.muzzle);

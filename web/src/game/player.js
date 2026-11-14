@@ -191,7 +191,12 @@ export class Player {
     if (!this.weapon) return;
     if (this.fpView && this.fpView.isSkinned) {
       this.weapon.model.position.set(0, -0.012, -0.05);
-      this.weapon.model.rotation.set(0, Math.PI, 0);
+      // No Y flip. fitWeaponModel() already lands the CC0 asset muzzle-toward
+      // -Z, which is the convention the whole viewmodel is authored against
+      // (GRIP_POINTS, ARM_POSES, withMuzzle's z = -0.66). Adding a 180 degree
+      // turn here pointed the muzzle back at the player and put the buttstock
+      // in the sight line — the rifle read as a black slab across the screen.
+      this.weapon.model.rotation.set(0, 0, 0);
     } else {
       this.weapon.model.position.set(0, 0, 0);
       this.weapon.model.rotation.set(0, 0, 0);
