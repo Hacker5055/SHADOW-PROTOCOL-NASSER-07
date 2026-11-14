@@ -645,6 +645,68 @@ The label under CONTINUE is produced by the same function, so it cannot disagree
 the button actually goes. A test walks a fresh save, a mid-campaign save, a finished
 campaign and a real checkpoint through it.
 
+## 12.9 The first-person weapon: what was actually wrong
+
+The in-game first-person view rendered the rifle and arms as a crumpled brown mass. Three
+separate defects were stacked on top of each other, and none of them were caught by the
+103 automated checks — because `__SP_HEADLESS__` replaces the `WebGLRenderer` with a no-op,
+so a green test run says nothing at all about pixels. All three were found by measuring
+geometry, and each fix was confirmed by rendering the real scene graph.
+
+**1. The rig was laid out in centimetres.** `Soldier.glb` is authored in cm with a
+`Character` node carrying `scale 0.01`. `soldierToFirstPersonArms()` rebuilt the hierarchy
+and carried over only the root bone, silently discarding that node. Measured result: an arm
+mesh with a bounding box of **184.8 m**, reaching 134–160 m in front of the camera. The
+`0.01` now travels with the rig, and — more importantly — the function no longer rebuilds
+the skeleton at all. It keeps the asset's own `Character → Armature → bones → mesh` graph
+and culls the non-arm triangles, so the mesh and its bones share one node and three.js
+derives `bindMatrix` and the inverse bind matrices from the authored bind pose.
+
+**2. Renormalised skin weights snapped the sleeve.** The original code dropped the non-arm
+influences from every vertex and renormalised the rest, to make the arms a closed mesh. A
+boundary vertex weighted to both the deltoid and the spine was therefore pinned fully onto
+the arm bone and shot out of frame as a spike. The weights are now copied through untouched
+against the real 49-bone skeleton; the triangles we do not want are simply not drawn.
+The visible set is forearm, hand and fingers — drawing the upper arm as well put a
+half-metre sleeve across the left half of the frame.
+
+**3. The rifle was pressed against the lens.** This was the brown mass itself. A rifle is
+~0.94 m long and its butt reaches 0.29 m behind the mount origin; the old idle mount was at
+`z = -0.15`, so the butt sat **0.09 m from the eye** while the near plane is 0.02 m. A 6 cm
+wide stock 9 cm away is magnified to ~1.5× the screen height. The model was never wrong —
+the player was looking at the inside of their own buttstock. Every stance now holds the
+weapon far enough forward that the stock is behind the near plane and gets clipped, exactly
+as a real viewmodel clips the player's own shoulder.
+
+Two supporting changes fell out of the measurements:
+
+- The rig is no longer rescaled to a nominal reach. `ARM_REACH / _armReach()` had been
+  inflating it by **1.40×**, giving half-metre forearms. Mixamo's Vanguard measures
+  **0.473 m** shoulder-to-wrist, and the grips are now placed inside that reach instead.
+- The support-hand grip moved from `z = -0.237` (0.71 m from the left shoulder, 3 cm beyond
+  the IK's reach, elbow locked at 175° — a straight plank) to `z = +0.02` (0.468 m, elbow
+  ~110°, hand exactly on the grip). The reload pose pulls in to `z = -0.28` for the same
+  reason.
+
+**How this is verified now.** `web/tools/fpview.mjs` is a CPU rasteriser for the real
+viewmodel: same `Soldier.glb`, same IK, same weapon model, same 80° FOV and same 0.02 m near
+plane, with near-plane clipping so triangles straddling the camera cannot smear into
+ribbons. It needs no GPU, no browser and no root, and it writes a PNG. Reference frames are
+committed as `docs/images/first-person-idle.png` and `docs/images/first-person-ads.png`.
+
+Measured after the fix: arm mesh bounding box **0.77 × 0.45 × 0.65 m**, both hands **0.0 mm**
+from their grips in every stance (idle, walk, run, ADS, crouch, fire, reload), trigger-arm
+elbow 72–80°, support-arm elbow 97–142°.
+
+**What is still not at the bar the design calls for, stated plainly:**
+
+- The weapon is still assembled from box and cylinder primitives in `models.js`. It reads as
+  a rifle in silhouette, not a modelled AKM. This is the largest remaining visual gap.
+- The arms are the untextured Mixamo mesh. In a real browser the diffuse texture loads; in
+  the CPU rasteriser the texture is a stub, so committed reference frames show them white.
+- The rasteriser has no shadows, no normal maps and flat lighting, so it flatters nothing
+  and hides nothing — but it is not a screenshot of the game.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.

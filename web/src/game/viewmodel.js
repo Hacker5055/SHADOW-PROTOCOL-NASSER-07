@@ -48,12 +48,17 @@ export const RELOAD_PHASES = [
 ];
 
 /**
- * Shoulder-to-wrist length every rig is normalised to, in metres. Longer than a
- * real arm on purpose: it is what buys the elbow a visible bend at rifle-grip
- * distances, which is the difference between "holding a weapon" and "pushing a
- * plank in front of the camera".
+ * Nominal shoulder-to-wrist length of a viewmodel arm, in metres.
+ *
+ * ADVISORY ONLY — nothing normalises the rig to it any more. Rescaling the rig
+ * to hit this number was what inflated Soldier.glb by 1.40x, giving half-metre
+ * forearms and a boot-sized hand. The asset's real reach is 0.473 m (Mixamo's
+ * Vanguard is a little short-armed, real adults are ~0.55 m) and the grip
+ * positions are placed to fit inside whatever reach the rig actually has.
+ *
+ * Use `_armReach()` to read the live value; tools/fpview.mjs prints it.
  */
-export const ARM_REACH = 0.585;
+export const ARM_REACH = 0.66;
 
 /** Bone lengths in metres — tuned against a 1.78 m soldier. */
 export const ARM_DIMS = {
@@ -287,47 +292,90 @@ export function soldierToFirstPersonArms(gltfScene) {
   // The body mesh carries all 49 joints; the visor mesh carries 2.
   const body = skinned.reduce((a, b) => (b.skeleton.bones.length > a.skeleton.bones.length ? b : a));
   const skeleton = body.skeleton;
-  const boneNames = skeleton.bones.map((b) => b.name);
-  const boneByName = new Map(skeleton.bones.map((b) => [b.name, b]));
+  const boneNames = skeleton.bones.map((b) => normaliseBoneName(b.name));
+  const boneByName = new Map();
+  skeleton.bones.forEach((b, i) => boneByName.set(boneNames[i], b));
 
-  const keepNames = new Set([...ARM_BONE_GROUPS.right, ...ARM_BONE_GROUPS.left].map(normaliseBoneName));
-  const keptBones = [];
-  const keepBoneIdx = new Uint16Array(boneNames.length);
-  boneNames.forEach((name, i) => {
-    if (keepNames.has(normaliseBoneName(name))) {
-      keepBoneIdx[i] = keptBones.length;
-      keptBones.push(skeleton.bones[i]);
-    } else {
-      keepBoneIdx[i] = 0xffff;
+  // Two different sets, and the difference matters.
+  //
+  // `chainNames` is what the two-bone IK drives: shoulder, upper arm, forearm,
+  // hand. All 49 bones stay in the skeleton either way (see the note below on
+  // why the weights must not be touched), so nothing needs trimming here.
+  //
+  // `visibleNames` is what actually gets DRAWN: forearm, hand and fingers only.
+  // Drawing the upper arm and deltoid as well put a half-metre sleeve across
+  // the whole left half of the frame — a real first-person view shows the
+  // forearms and hands, never the shoulder. The shoulder geometry is still
+  // skinned and still moving, it is simply not submitted.
+  const chainNames = new Set([...ARM_BONE_GROUPS.right, ...ARM_BONE_GROUPS.left].map(normaliseBoneName));
+  const visibleNames = new Set();
+  // Bone names are CamelCase: mixamorigRightForeArm. Building these from the
+  // lowercase side ('right') produced mixamorigrightForeArm, which matched
+  // nothing and left the arm filter with zero triangles.
+  for (const Side of ['Right', 'Left']) {
+    visibleNames.add(normaliseBoneName(`${RIG_PREFIX}${Side}ForeArm`));
+    visibleNames.add(normaliseBoneName(`${RIG_PREFIX}${Side}Hand`));
+    for (const finger of ['Thumb', 'Index', 'Middle', 'Ring']) {
+      for (let n = 1; n <= 3; n++) visibleNames.add(normaliseBoneName(`${RIG_PREFIX}${Side}Hand${finger}${n}`));
     }
+  }
+  const isArmBone = new Uint8Array(boneNames.length);
+  let armBoneCount = 0;
+  boneNames.forEach((name, i) => {
+    if (chainNames.has(name)) armBoneCount++;
+    if (visibleNames.has(name)) isArmBone[i] = 1;
   });
-  if (!keptBones.length) throw new Error('no arm bones found — rig naming changed?');
+  if (!armBoneCount) throw new Error('no arm bones found — rig naming changed?');
 
   const geo = body.geometry;
-  geo.computeBoundingBox();
   const idx = geo.index;
   const pos = geo.attributes.position;
-  const nrm = geo.attributes.normal;
-  const uv = geo.attributes.uv;
   const si = geo.attributes.skinIndex;
   const sw = geo.attributes.skinWeight;
   const triCount = idx ? idx.count / 3 : pos.count / 3;
 
-  // A triangle belongs to the arms if most of its vertices are weighted to arm
-  // bones. Weight-based, not position-based: it survives any rest pose.
-  const wsum = new Float32Array(pos.count);
+  // How much of each vertex is driven by arm bones (0..1).
+  const armWeight = new Float32Array(pos.count);
   for (let v = 0; v < pos.count; v++) {
     let s = 0;
     for (let k = 0; k < 4; k++) {
-      const b = si.getComponent(v, k);
-      if (keepBoneIdx[b] !== 0xffff) s += sw.getComponent(v, k);
+      const w = sw.getComponent(v, k);
+      if (w > 0 && isArmBone[si.getComponent(v, k)]) s += w;
     }
-    wsum[v] = s;
+    armWeight[v] = s;
   }
 
+  // Draw only triangles that are actually sleeve/hand: at least two corners
+  // arm-dominated. Everything else (torso, legs, head) is discarded.
   const keepTri = [];
+  for (let t = 0; t < triCount; t++) {
+    const a = idx ? idx.getX(t * 3) : t * 3;
+    const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
+    const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+    // At least one corner must be strongly forearm/hand. The threshold is
+    // lower than the old arm-only pass (1.5) because the mask no longer counts
+    // the upper arm, so a wrist triangle tops out near 1.0 rather than 2.0.
+    if (armWeight[a] + armWeight[b] + armWeight[c] < 0.9) continue;
+    keepTri.push(a, b, c);
+  }
+  if (!keepTri.length) {
+    const dbg = { armBoneCount, visible: [...visibleNames].slice(0, 4), kept: 0, maxW: Math.max(...armWeight) };
+    throw new Error(`arm filter kept no triangles ${JSON.stringify(dbg)}`);
+  }
+
+  // Compact the vertex set, but copy skinIndex/skinWeight through UNCHANGED.
+  //
+  // An earlier version dropped the non-arm influences and renormalised what
+  // was left. That does not merely thin the skeleton — it changes the surface.
+  // A boundary vertex weighted to both the deltoid and the spine snapped fully
+  // onto the arm bone and shot out of the frame as a spike. Keeping the real
+  // weights against the real 49-bone skeleton means the visible sleeve deforms
+  // exactly as it does on the full character; the triangles we threw away are
+  // simply not drawn.
   const used = new Map();
   const outPos = [], outNrm = [], outUv = [], outSI = [], outSW = [];
+  const nrm = geo.attributes.normal;
+  const uv = geo.attributes.uv;
   const emit = (v) => {
     let n = used.get(v);
     if (n !== undefined) return n;
@@ -336,36 +384,12 @@ export function soldierToFirstPersonArms(gltfScene) {
     outPos.push(pos.getX(v), pos.getY(v), pos.getZ(v));
     if (nrm) outNrm.push(nrm.getX(v), nrm.getY(v), nrm.getZ(v));
     if (uv) outUv.push(uv.getX(v), uv.getY(v));
-
-    // Remap the four influences onto the kept bone list, dropping the rest and
-    // renormalising. This is what keeps the sleeve moving with the forearm.
-    const bi = [], bw = [];
     for (let k = 0; k < 4; k++) {
-      const b = si.getComponent(v, k);
-      const wgt = sw.getComponent(v, k);
-      if (wgt <= 0) continue;
-      const nb = keepBoneIdx[b];
-      if (nb === 0xffff) continue;
-      bi.push(nb); bw.push(wgt);
+      outSI.push(si.getComponent(v, k));
+      outSW.push(sw.getComponent(v, k));
     }
-    while (bi.length < 4) { bi.push(0); bw.push(0); }
-    let sum = bw.reduce((a, b) => a + b, 0);
-    if (sum <= 0) { bw[0] = 1; sum = 1; }
-    for (let k = 0; k < 4; k++) bw[k] /= sum;
-    outSI.push(bi[0], bi[1], bi[2], bi[3]);
-    outSW.push(bw[0], bw[1], bw[2], bw[3]);
     return n;
   };
-
-  for (let t = 0; t < triCount; t++) {
-    const a = idx ? idx.getX(t * 3) : t * 3;
-    const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1;
-    const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
-    const score = wsum[a] + wsum[b] + wsum[c];
-    if (score < 1.5) continue; // fewer than two arm-weighted corners
-    keepTri.push(a, b, c);
-  }
-  if (!keepTri.length) throw new Error('arm filter kept no triangles');
 
   const outIndex = new Uint32Array(keepTri.length);
   for (let i = 0; i < keepTri.length; i++) outIndex[i] = emit(keepTri[i]);
@@ -377,38 +401,37 @@ export function soldierToFirstPersonArms(gltfScene) {
   outGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(outSI, 4));
   outGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(outSW, 4));
   outGeo.setIndex(new THREE.BufferAttribute(outIndex, 1));
-  outGeo.computeBoundingSphere();
   outGeo.computeBoundingBox();
-
-  // Keep the whole hierarchy (bones never render) so the arm bones inherit the
-  // spine's world transform exactly as they did originally.
-  const armature = new THREE.Group();
-  armature.name = 'armature';
-  const rootBone = skeleton.bones.find((b) => !b.parent || !boneNames.includes(b.parent.name))
-    || skeleton.bones[0];
-  if (rootBone) armature.add(rootBone);
-  root.add(armature);
-
-  const armSkeleton = new THREE.Skeleton(keptBones);
-  armature.updateMatrixWorld(true);
-  armSkeleton.calculateInverses();
+  outGeo.computeBoundingSphere();
 
   const material = body.material.clone();
   material.side = THREE.FrontSide;
 
-  const mesh = new THREE.SkinnedMesh(outGeo, material);
-  mesh.name = 'FPSoldierArmsMesh';
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  mesh.frustumCulled = false;
-  mesh.bind(armSkeleton, new THREE.Matrix4());
-  root.add(mesh);
+  // Keep the asset's own graph: `Character` (scale 0.01) -> Armature -> bones
+  // -> mesh. The mesh and its bones therefore share one node, so three derives
+  // bindMatrix and the inverse bind matrices from the authored bind pose and
+  // the 0.01 cannot be lost. Everything except the body mesh is removed.
+  const sceneRoot = gltfScene;
+  const drop = [];
+  sceneRoot.traverse((o) => { if (o.isSkinnedMesh && o !== body) drop.push(o); });
+  for (const o of drop) o.parent && o.parent.remove(o);
+
+  body.geometry = outGeo;
+  body.material = material;
+  body.castShadow = false;
+  body.receiveShadow = false;
+  body.frustumCulled = false;
+  body.name = 'FPSoldierArmsMesh';
+  // Re-bind against the untouched skeleton in its authored bind pose.
+  body.bind(skeleton, body.bindMatrix);
+
+  root.add(sceneRoot);
 
   return {
     root,
-    mesh,
-    skeleton: armSkeleton,
-    keptBones,
+    mesh: body,
+    skeleton,
+    keptBones: skeleton.bones.filter((b, i) => isArmBone[i]),
     bones: boneByName,
     rightHand: boneByName.get(`${RIG_PREFIX}RightHand`),
     leftHand: boneByName.get(`${RIG_PREFIX}LeftHand`),
@@ -416,14 +439,7 @@ export function soldierToFirstPersonArms(gltfScene) {
     leftArm: boneByName.get(`${RIG_PREFIX}LeftArm`),
     rightForeArm: boneByName.get(`${RIG_PREFIX}RightForeArm`),
     leftForeArm: boneByName.get(`${RIG_PREFIX}LeftForeArm`),
-    material,
-    stats: {
-      sourceVertices: pos.count,
-      armVertices: outPos.length / 3,
-      sourceTriangles: triCount,
-      armTriangles: keepTri.length / 3,
-      keptBones: keptBones.length
-    }
+    stats: { sourceTriangles: triCount, armTriangles: keepTri.length / 3, armVertices: used.size }
   };
 }
 
@@ -498,14 +514,43 @@ export async function loadSoldierArmsFromGLB(url = './models/Soldier.glb', opts 
 }
 
 export const ARM_POSES = {
-  idle:   { holder: [0.058, -0.176, -0.152], holderRot: [-0.03, 0.10, 0.04] },
-  walk:   { holder: [0.052, -0.186, -0.146], holderRot: [-0.05, 0.12, 0.06] },
-  run:    { holder: [0.084, -0.232, -0.138], holderRot: [-0.14, 0.30, 0.18] },
-  ads:    { holder: [0.000, -0.080, -0.250], holderRot: [0.00, 0.00, 0.00] },
-  fire:   { holder: [0.000, -0.078, -0.225], holderRot: [0.05, 0.00, 0.00] },
-  reload: { holder: [0.062, -0.190, -0.118], holderRot: [0.14, -0.30, 0.24] },
-  empty:  { holder: [0.066, -0.190, -0.150], holderRot: [0.02, -0.14, 0.10] }
+  // The Z of each pose is the number that was wrong.
+  //
+  // A rifle is ~0.94 m long and its butt reaches 0.29 m behind the mount
+  // origin. At the old z = -0.15 the butt sat 0.09 m from the eye while the
+  // near plane is 0.02 m, so a 6 cm wide stock 9 cm away was magnified to 1.5x
+  // the screen height — that is the brown mass in the screenshot. It was never
+  // the wrong model; it was the inside of the stock against the lens.
+  //
+  // Every pose therefore holds the rifle far enough forward that the butt is
+  // behind the near plane and gets clipped, exactly as a real viewmodel clips
+  // the player's own shoulder. The X/Y/yaw keep it right-and-low with the
+  // muzzle converging on the crosshair (centre at NDC ~0.09, -0.58).
+  //
+  // These values were solved, not guessed: see tools/fpview.mjs. Beyond about
+  // z = -0.38 the support arm passes 170 deg and turns into a straight plank.
+  idle:   { holder: [0.100, -0.190, -0.340], holderRot: [-0.02, 0.16, 0.03] },
+  walk:   { holder: [0.096, -0.200, -0.334], holderRot: [-0.05, 0.18, 0.05] },
+  run:    { holder: [0.112, -0.214, -0.322], holderRot: [-0.14, 0.26, 0.16] },
+  // ADS. The Y value is doing the real work here.
+  //
+  // At y = -0.073 the buttstock projected to NDC -0.45 and covered 60% of the
+  // frame in brown — the eye was looking straight down the side of the stock.
+  // Dropping to -0.14 puts the butt edge at -0.40 and the rear sight just
+  // below centre, so the player looks over the stock and through the sights.
+  // Solved by measuring the stock's projected extent at 36 candidate poses
+  // (tools/fpview.mjs), not by eye.
+  ads:    { holder: [0.000, -0.140, -0.370], holderRot: [0.20, 0.00, 0.00] },
+  fire:   { holder: [0.004, -0.136, -0.356], holderRot: [0.22, 0.00, 0.00] },
+  // Reload pulls the rifle in towards the chest. z cannot go below -0.30 here:
+  // the swing away from the shoulder pushes the support grip past the 0.473 m
+  // reach and the left hand loses the weapon mid-animation (measured 4 cm short
+  // at the old -0.312).
+  reload: { holder: [0.104, -0.206, -0.280], holderRot: [0.10, 0.02, 0.22] },
+  empty:  { holder: [0.102, -0.196, -0.336], holderRot: [0.02, 0.02, 0.10] }
 };
+
+
 
 /**
  * Grip points, in weapon-mount space. The rifle model is authored muzzle toward
@@ -520,7 +565,18 @@ export const GRIP_POINTS = {
   // Trigger hand: on the pistol grip, behind the receiver.
   right: { hand: [0.000, -0.130, 0.088], pole: [0.55, -0.80, 0.35] },
   // Support hand: under the handguard, ahead of the receiver.
-  left:  { hand: [0.000, -0.052, -0.222], pole: [-0.55, -0.80, 0.30] }
+  // Support hand on the front of the receiver, at the magazine well. It used to
+  // sit at z = -0.237 on the handguard, which is ~0.71 m from the left
+  // shoulder — far beyond the rig's real reach, so the IK gave up 3 cm short
+  // with the elbow locked at 175 deg: a straight plank.
+  //
+  // The reach is the hard constraint here and it is smaller than it looks.
+  // Mixamo's Vanguard measures 0.473 m shoulder-to-wrist (a real adult is
+  // ~0.55 m), and the mount sits 0.34 m out, so the handguard is out of range
+  // by construction. At z = +0.02 the grip needs 0.468 m and the hand lands
+  // exactly on it with the elbow near 145 deg. Measured with tools/fpview.mjs;
+  // simtest asserts the 0.02 m lock across every stance.
+  left:  { hand: [0.000, -0.052, 0.020], pole: [-0.55, -0.80, 0.30] }
 };
 
 /** Shoulder joints in view space — the pivot the whole arm hangs from. */
@@ -626,17 +682,16 @@ export class FirstPersonView {
     armsRoot.scale.setScalar(RIG_UNIT_SCALE);
     this.root.updateMatrixWorld(true);
 
-    // Self-calibrate on arm length. The asset arrives already metric (its root
-    // node carries the 0.01), but different rigs disagree on how long a human
-    // arm is — and if the arms are too short the hands cannot reach the grips
-    // and the IK silently straightens the elbows into a plank. Scaling so
-    // shoulder-to-wrist matches ARM_REACH gives both rigs the same, comfortable
-    // amount of elbow bend at the same grip positions.
-    const reach = this._armReach();
-    if (reach > 1e-4) {
-      armsRoot.scale.multiplyScalar(ARM_REACH / reach);
-      this.root.updateMatrixWorld(true);
-    }
+    // Do NOT rescale the rig to a nominal reach.
+    //
+    // This used to multiply by ARM_REACH / _armReach(), which made the arms
+    // grow to whatever value the grips demanded — on Soldier.glb that came out
+    // at 1.40x, i.e. forearms half a metre long and a hand the size of a boot.
+    // A real viewmodel is not solved by shrinking or stretching the player's
+    // body; it is solved by putting the weapon where a human arm can hold it.
+    // The asset is metric, so its proportions stay exactly as authored and the
+    // grip positions are chosen to fit inside the rig's natural reach.
+    this.root.updateMatrixWorld(true);
 
     // Offset the rig so the shoulder midpoint lands on the view anchor.
     const mid = this._shoulderMid();

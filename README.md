@@ -15,7 +15,7 @@ Unreal Engine 5 · PC · Seven-chapter single-player campaign.
 | Path | What it is | Status |
 |---|---|---|
 | `ShadowProtocol/` | The real **Unreal Engine 5.4+ C++ project** — movement, weapons, AI, squad, mission & save framework, procedural graybox range, config `.ini` set | Source written; **never compiled here** (no UE toolchain in the authoring environment) |
-| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard), 06 *Shadow Protocol* (desert bunker) and 07 *The Final Legacy* (Alexandria tower + endings), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 103 automated checks passing |
+| `web/` | **Playable vertical slice** (Three.js/WebGL) — Chapters 01 *The Crossing* (1973), 02 *The Silent Mission*, 03 *The Black File* (Cairo hub + rooftop ambush), 04 *City of Shadows* (Vienna streets), 05 *Betrayal* (safehouse + freight yard), 06 *Shadow Protocol* (desert bunker) and 07 *The Final Legacy* (Alexandria tower + endings), menus, HUD, squad AI, enemy AI, branch dialogue, checkpoints | **Playable now** in any modern browser · 103 automated checks passing; first-person weapon measured and rendered via `web/tools/fpview.mjs` |
 | `docs/` | Story bible, seven-chapter design, technical architecture, roadmap, audio/VO direction, historical reference | Complete for the campaign design |
 | `ShadowProtocol/Tools/` | `build_mission_assets.py` (editor asset generation) and `verify_source.py` (static source checks) | `verify_source.py` runs here and reports CLEAN; the editor script runs inside UE |
 

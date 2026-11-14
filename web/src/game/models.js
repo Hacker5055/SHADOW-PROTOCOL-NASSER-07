@@ -199,10 +199,10 @@ export function buildSoldier(palette = PALETTE.egypt1973, opts = {}) {
 /** Returns a weapon mesh group with a muzzle Object3D at `muzzle`. */
 export function buildWeaponModel(id) {
   const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x22242a, roughness: 0.55, metalness: 0.65 });
-  const woodM = new THREE.MeshStandardMaterial({ color: 0x53331c, roughness: 0.8 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3c4048, roughness: 0.5, metalness: 0.62 });
+  const woodM = new THREE.MeshStandardMaterial({ color: 0x74472a, roughness: 0.72 });
   const poly = new THREE.MeshStandardMaterial({ color: 0x2e3128, roughness: 0.75 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.4, metalness: 0.85 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x646a70, roughness: 0.36, metalness: 0.8 });
 
   const add = (mesh, x, y, z) => { mesh.position.set(x, y, z); g.add(mesh); return mesh; };
   const b = (w, h, d, m) => { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); me.castShadow = true; return me; };
