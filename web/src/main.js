@@ -28,10 +28,37 @@ function fatal(err) {
   if (boot) boot.classList.add('done');
 }
 
+// A module that fails to *load* never runs any of its own code, so the app
+// cannot catch its own import errors. Browsers still report them here, as an
+// Event with no `error` payload — and the old handler deliberately ignored
+// those (`if (e.error)`), which turns any broken import into a permanent black
+// screen with no message: the boot overlay sits on "INITIALISING ENGINE"
+// forever and the console shows nothing actionable.
 window.addEventListener('error', (e) => {
-  if (e.error) fatal(e.error);
+  if (e.error) { fatal(e.error); return; }
+  const t = e.target;
+  if (t && t !== window && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+    fatal(new Error(`failed to load ${t.tagName === 'LINK' ? 'stylesheet' : 'module'}: ${t.src || t.href}`));
+    return;
+  }
+  if (e.message) fatal(new Error(e.message));
 });
 window.addEventListener('unhandledrejection', (e) => fatal(e.reason));
+
+// Watchdog: if the engine has not signalled ready within 12 s, say so instead
+// of leaving the boot overlay spinning. Silence is the worst failure mode.
+setTimeout(() => {
+  if (window.__SP_BOOTED__) return;
+  const hint = document.querySelector('#boot .hint');
+  if (document.getElementById('boot')?.classList.contains('done')) return;
+  if (hint) hint.textContent = 'ENGINE DID NOT START — see the error panel';
+  fatal(new Error(
+    'The engine did not reach READY within 12 s.\n\n'
+    + 'Most likely: WebGL2 is unavailable or the GPU process failed to start.\n'
+    + 'Try: chrome://gpu, a different browser, or enable hardware acceleration.\n'
+    + 'Open the developer console (F12) for the underlying error.'
+  ));
+}, 12000);
 
 function start() {
   const canvas = document.getElementById('view');
@@ -113,6 +140,7 @@ function start() {
     }
   }
 
+  window.__SP_BOOTED__ = true;
   const boot = document.getElementById('boot');
   if (boot) {
     boot.querySelector('.hint').textContent = 'READY';
