@@ -1,0 +1,65 @@
+name: Build Linux package
+
+# Produces shadow-protocol-nasser-07-linux.tar.gz and attaches it to the
+# release. This runs on GitHub's runners because the build sandbox cannot reach
+# uploads.github.com, so the archive cannot be attached from there directly.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the gameplay checks
+        run: node tools/simtest.mjs
+
+      - name: Build
+        run: npm run build
+
+      - name: Package for Linux
+        run: node tools/package-linux.mjs
+
+      - name: Verify package boots over http
+        run: |
+          cd shadow-protocol-nasser-07-linux
+          NO_OPEN=1 PORT=7500 ./play.sh &
+          sleep 3
+          for f in / assets/ models/Soldier.glb models/weapons/akm.glb; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7500/$f")
+            echo "$f -> $code"
+            [ "$code" = "200" ] || exit 1
+          done
+
+      - name: Upload archive as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-protocol-nasser-07-linux
+          path: web/shadow-protocol-nasser-07-linux.tar.gz
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: web/shadow-protocol-nasser-07-linux.tar.gz
