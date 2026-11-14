@@ -619,6 +619,32 @@ decorative.
 - The manifest's Arabic copy is written but never rendered in the dossier, which is English
   only. The ending and intel *bodies* are bilingual.
 
+## 12.8 The dossier reading pane and CONTINUE (menu)
+
+**Archive reading.** Every entry in `game/intel.js` has carried Arabic title and body text
+since chapter 01. Nothing in the game ever rendered it: the dossier listed documents as raw
+ids, and the only bilingual surface was the subtitle line. `showIntel(id)` now opens a
+recovered document as a page — the Arabic set as the body, the English underneath as the
+operative's gloss, with the chapter/beat reference and whether the record is optional. The
+`showArabic` setting governs it, and governs the ending copy in the dossier too; it is now
+labelled "Arabic in subtitles and archive documents" rather than only subtitles.
+
+**CONTINUE resolved to chapter 01, always.** The handler returned `firstPlayableId()` — the
+first registered mission id — whenever it did not find a checkpoint, and it never found a
+checkpoint because it compared `save.progress.lastChapter` (which holds a *mission id*)
+against `def.chapterIndex` (a number). So CONTINUE restarted the campaign from the beginning
+for every player. `continueTarget()` resolves properly:
+
+1. if `lastChapter` is a registered mission id with a stored checkpoint → resume it;
+2. otherwise map an older numeric `lastChapter` forward to its mission;
+3. otherwise the earliest unlocked chapter the player has not completed;
+4. otherwise — a finished campaign — the last unlocked mission, so the button re-enters the
+   finale instead of doing nothing.
+
+The label under CONTINUE is produced by the same function, so it cannot disagree with where
+the button actually goes. A test walks a fresh save, a mid-campaign save, a finished
+campaign and a real checkpoint through it.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.

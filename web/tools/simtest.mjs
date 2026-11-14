@@ -2247,7 +2247,9 @@ check('The dossier names documents and shows what the coda still needs', () => {
   game.menu.root.querySelector = original;
   void proto;
   if (!/INTELLIGENCE INDEX/.test(html)) throw new Error('no index section');
-  if (html.includes('doc1973_orders')) throw new Error('still printing raw document ids');
+  // `data-intel="<id>"` is the click target, so the id legitimately appears in
+  // an attribute; what must not appear is the id as the visible label.
+  if (/>\s*[a-z]{2,}\d{4}_[a-z0-9_]+\s*</.test(html)) throw new Error('still printing raw document ids');
   if (!html.includes(held[0].title)) throw new Error('a held document is not named by its title');
   if (!/REQUIRED FOR THE 1973 CODA/.test(html)) throw new Error('the coda requirement is not surfaced');
   if (!new RegExp(`${held.length} / ${intelMod.codaRequirement()}`).test(html)) {
@@ -2255,6 +2257,107 @@ check('The dossier names documents and shows what the coda still needs', () => {
   }
   if (!/not recovered/.test(html)) throw new Error('unfound documents are not shown as missing');
   return `${held.length}/${intelMod.codaRequirement()} required · ${intelMod.INTELLIGENCE.length} listed`;
+});
+
+check('A recovered document can be opened and read in both languages', () => {
+  // The manifest has carried Arabic title and body text since chapter 01 and
+  // nothing in the game ever rendered it. The dossier now opens documents, and
+  // the Arabic is the page while the English is the gloss.
+  const doc = intelMod.INTELLIGENCE[0];
+  game.save.progress.intel = { [doc.id]: true };
+
+  let html = '';
+  const original = game.menu.root.querySelector;
+  const capture = (sel) => {
+    const el = original.call(game.menu.root, sel);
+    if (sel === '#dossier-body') {
+      Object.defineProperty(el, 'innerHTML', {
+        set(v) { html = v; }, get() { return html; }, configurable: true
+      });
+    }
+    return el;
+  };
+  game.menu.root.querySelector = function (sel) { return capture(sel); };
+
+  game.menu.showIntel(doc.id);
+  game.menu.root.querySelector = original;
+
+  if (!html) throw new Error('the reading pane rendered nothing');
+  if (!html.includes(doc.titleAr)) throw new Error('the Arabic title is not rendered');
+  if (!html.includes(doc.bodyAr)) throw new Error('the Arabic body is not rendered');
+  if (!html.includes(doc.body)) throw new Error('the English gloss is not rendered');
+  if (!/INTELLIGENCE INDEX/.test(html)) throw new Error('no way back to the index');
+  if (game.menu.reading !== doc.id) throw new Error('the menu did not record what is being read');
+
+  // A document the player does not hold must not open, or the archive leaks.
+  const unheld = intelMod.INTELLIGENCE.find((d) => !game.save.progress.intel[d.id]);
+  let leaked = '';
+  game.menu.root.querySelector = function (sel) {
+    const el = original.call(game.menu.root, sel);
+    if (sel === '#dossier-body') Object.defineProperty(el, 'innerHTML', { set(v) { leaked = v; }, get() { return leaked; }, configurable: true });
+    return el;
+  };
+  game.menu.reading = null;
+  game.menu.showIntel(unheld.id);
+  game.menu.root.querySelector = original;
+  if (leaked) throw new Error('an unrecovered document opened');
+
+  // Every entry must be readable in both languages, not just the first.
+  const bald = intelMod.INTELLIGENCE.filter((d) => !d.titleAr || !d.bodyAr);
+  if (bald.length) throw new Error(`no Arabic copy: ${bald.map((d) => d.id).join(', ')}`);
+  return `${doc.id} · bilingual · ${intelMod.INTELLIGENCE.length}/${intelMod.INTELLIGENCE.length} have Arabic`;
+});
+
+check('CONTINUE resumes the chapter the player is actually on', () => {
+  // CONTINUE always restarted chapter 01: the resolution returned chapter 01's
+  // mission *id* regardless of progress. A fresh save, a mid-campaign save, a
+  // finished campaign and a checkpoint must each resolve sensibly.
+  const save = game.save;
+
+  // fresh save
+  save.progress.chaptersUnlocked = 1;
+  save.progress.chaptersCompleted = [];
+  save.progress.lastChapter = null;
+  save.checkpoints = {};
+  let t = game.menu.continueTarget();
+  if (t.id !== 'ch01_crossing') throw new Error(`fresh save continued to ${t.id}`);
+  if (t.fromCheckpoint) throw new Error('fresh save claimed a checkpoint');
+
+  // mid-campaign: five chapters unlocked, four completed
+  save.progress.chaptersUnlocked = 5;
+  save.progress.chaptersCompleted = [1, 2, 3, 4];
+  t = game.menu.continueTarget();
+  const def = game.missions.get(t.id)?.def;
+  if (def.chapterIndex !== 5) throw new Error(`expected chapter 5, resolve gave ${t.id} (chapter ${def.chapterIndex})`);
+
+  // finished campaign: everything completed, must still land on chapter 07
+  save.progress.chaptersUnlocked = 7;
+  save.progress.chaptersCompleted = [1, 2, 3, 4, 5, 6, 7];
+  t = game.menu.continueTarget();
+  const lastDef = game.missions.get(t.id)?.def;
+  if (lastDef.chapterIndex !== 7) throw new Error(`finished campaign continued to chapter ${lastDef.chapterIndex}`);
+
+  // a checkpoint in chapter 06 must win over "next unplayed"
+  save.progress.chaptersUnlocked = 7;
+  save.progress.chaptersCompleted = [1, 2, 3, 4, 5];
+  save.progress.lastChapter = 6;
+  game.startMission('ch06_shadow_protocol');
+  game.mission.checkpoint();
+  if (!game.save.getCheckpoint('ch06_shadow_protocol')) throw new Error('the checkpoint was not stored');
+  t = game.menu.continueTarget();
+  if (!t.fromCheckpoint) throw new Error('a real checkpoint was ignored');
+  if (game.missions.get(t.id)?.def.chapterIndex !== 6) {
+    throw new Error(`checkpoint resolved to ${t.id}`);
+  }
+
+  // and the id it returns must always be a registered mission
+  for (const setup of [[1, []], [3, [1, 2]], [7, [1, 2, 3, 4, 5, 6]]]) {
+    save.progress.chaptersUnlocked = setup[0];
+    save.progress.chaptersCompleted = setup[1];
+    const r = game.menu.continueTarget();
+    if (!game.missions.has(r.id)) throw new Error(`resolved to an unregistered mission: ${r.id}`);
+  }
+  return 'fresh→01 · mid→05 · finished→07 · checkpoint→06';
 });
 
 check('Chapter 07 objective count matches its mission definition', () => {

@@ -311,16 +311,16 @@ export class Menu {
         break;
       }
       case 'continue': {
-        const last = g.save.progress.lastChapter;
-        const cpInfo = last ? g.save.getCheckpoint(last) : null;
-        const id = cpInfo ? last : this.firstPlayableId();
+        const { id, fromCheckpoint } = this.continueTarget();
         this.hideAll();
-        g.startMission(id, { fromCheckpoint: !!cpInfo });
+        g.startMission(id, { fromCheckpoint });
         g.requestLock();
         break;
       }
       case 'chapters': this.show('chapters'); break;
       case 'dossier': this.showDossier(); break;
+      case 'intel-read': this.showIntel(el.dataset.intel); break;
+      case 'dossier-back': this.showDossier(); break;
       case 'settings': this.show('settings'); break;
       case 'credits': this.show('credits'); break;
       case 'back': this.showMain(); break;
@@ -404,16 +404,18 @@ export class Menu {
     this.game.hud.show(false);
     this.show('main');
     const p = this.game.save.progress;
-    const cpId = p.lastChapter;
-    const cp = cpId ? this.game.save.getCheckpoint(cpId) : null;
     const info = this.root.querySelector('#continue-info');
-    if (cp) {
-      const def = this.game.missions.get(cpId);
-      info.textContent = def ? def.def.title : 'CHECKPOINT';
+    // Label CONTINUE with the chapter it will actually start, using the same
+    // resolution the button uses — a label that disagrees with the destination
+    // is worse than no label.
+    const target = this.continueTarget();
+    const targetDef = target.id ? this.game.missions.get(target.id)?.def : null;
+    const cont = this.root.querySelector('[data-act="continue"]');
+    if (targetDef) {
+      info.textContent = `${targetDef.title.toUpperCase()}${target.fromCheckpoint ? ' · CHECKPOINT' : ''}`;
+      if (cont) cont.classList.remove('disabled');
     } else {
       info.textContent = '—';
-      // disable continue if nothing to continue
-      const cont = this.root.querySelector('[data-act="continue"]');
       if (cont) cont.classList.add('disabled');
     }
     this.root.querySelector('#chapter-info').textContent = `${Math.min(p.chaptersUnlocked, 7)} / 7`;
@@ -551,6 +553,58 @@ export class Menu {
   }
 
   /**
+   * Where "CONTINUE" should go.
+   *
+   * Returning chapter 01's id rather than the mission id made CONTINUE restart
+   * the first mission every single time. Separately, preferring a checkpoint
+   * merely because one existed meant a player who had reached chapter 05 and
+   * then pressed CONTINUE was dropped into chapter 01's saved position. The
+   * checkpoint that matters is the one for the chapter being continued.
+   */
+  continueTarget() {
+    const g = this.game;
+    const save = g.save;
+    // Materialise the list: `missions.keys()` is a live iterator, and consuming
+    // it twice inside one call silently yields nothing the second time.
+    const ids = [...g.missions.keys()];
+    // `lastChapter` holds a mission id, not a chapter number. Comparing it to
+    // `def.chapterIndex` never matched, so a real checkpoint was always ignored
+    // and CONTINUE silently restarted instead of resuming.
+    const last = save.progress.lastChapter;
+    if (last && save.getCheckpoint(last) && ids.includes(last)) {
+      return { id: last, fromCheckpoint: true };
+    }
+    if (last && save.getCheckpoint(last)) {
+      // Older saves stored a chapter number here; map it forward.
+      for (const id of ids) {
+        const def = g.missions.get(id)?.def;
+        if (def && def.chapterIndex === Number(last)) return { id, fromCheckpoint: true };
+      }
+    }
+    const unlocked = save.progress.chaptersUnlocked || 1;
+    const completed = save.progress.chaptersCompleted || [];
+    // Resume at the earliest unlocked chapter the player has not finished.
+    let target = null;
+    let finale = null;
+    for (const id of ids) {
+      const def = g.missions.get(id)?.def;
+      if (!def) continue;
+      if (def.chapterIndex > unlocked) continue;
+      if (!finale || def.chapterIndex >= (g.missions.get(finale)?.def.chapterIndex || 0)) finale = id;
+      if (completed.includes(def.chapterIndex)) continue;
+      if (!target) target = id;
+    }
+    // A finished campaign has nothing unplayed left. Falling through to null
+    // made CONTINUE do nothing at all on the campaign's final save, so the last
+    // unlocked mission is the honest answer — it lets the player re-enter the
+    // finale rather than staring at a dead button.
+    if (!target) target = finale;
+    // A save with no registered missions must not resolve to `undefined` and
+    // then be passed to startMission.
+    return target ? { id: target, fromCheckpoint: false } : { id: null, fromCheckpoint: false };
+  }
+
+  /**
    * The chapter a mission belongs to, as a 1-based number.
    *
    * This used to be the mission's *position* in the registry. Chapter 01 has two
@@ -639,7 +693,7 @@ export class Menu {
       </div>
       <div class="set-group">
         <h3>INTERFACE</h3>
-        ${toggle('showArabic', 'Show Egyptian Arabic subtitles')}
+        ${toggle('showArabic', 'Arabic in subtitles and archive documents')}
         ${toggle('subtitles', 'Subtitles enabled')}
         ${range('hudScale', 'HUD scale', 0.8, 1.4, 0.05, s.hudScale, (v) => `${Math.round(v * 100)}%`)}
         ${toggle('filmGrain', 'Film grain / halation')}
@@ -693,6 +747,7 @@ export class Menu {
         ${flags[k] ? 'ESTABLISHED' : 'NOT ESTABLISHED'}</span></div>`;
     const ending = g.save.resolveEnding();
     const copy = g.save.endingCopy(ending);
+    const arabicOn = g.settings.showArabic !== false;
     // The index has to name documents, not echo their ids, and it has to tell
     // the player which of them the 1973 coda actually needs. Printing
     // `Object.keys(p.intel).join(' · ')` did neither.
@@ -733,7 +788,7 @@ export class Menu {
             <div class="k">${copy.tone}</div>
             <div class="v" style="color:#e0741f">${g.save.endingTitle(ending)}</div>
           </div>
-          <div style="direction:rtl;font-family:'Noto Naskh Arabic',serif;font-size:16px;margin-top:12px;color:rgba(232,226,208,.6)">${copy.ar}</div>
+          ${arabicOn ? `<div style="direction:rtl;font-family:'Noto Naskh Arabic',serif;font-size:16px;margin-top:12px;color:rgba(232,226,208,.6)">${copy.ar}</div>` : ''}
           <div style="font-size:11px;line-height:1.8;margin-top:10px;color:rgba(232,226,208,.62);letter-spacing:.03em">${copy.en}</div>
         </div>
       </div>
@@ -744,16 +799,51 @@ export class Menu {
             ? '<span style="color:rgba(232,226,208,.55)">No documents recovered yet. They are recovered in-mission from evidence markers.</span>'
             : manifest.map((d) => {
               const held = !!(p.intel || {})[d.id];
-              return `<div style="display:flex;gap:10px;align-items:baseline;${held ? '' : 'opacity:.34'}">
+              return `<div class="intel-row ${held ? 'held' : 'missing'}" ${held ? `data-act="intel-read" data-intel="${d.id}"` : ''}
+                style="display:flex;gap:10px;align-items:baseline;padding:2px 0;${held ? 'cursor:pointer' : 'opacity:.34'}">
                 <span style="color:${held ? '#9fbb74' : 'rgba(232,226,208,.5)'};font-size:9px;min-width:34px">CH ${String(d.chapter).padStart(2, '0')}</span>
                 <span style="flex:1;color:${held ? 'rgba(232,226,208,.86)' : 'rgba(232,226,208,.5)'}">${held ? d.title : '— not recovered —'}</span>
                 ${d.missable ? '<span style="font-size:9px;color:rgba(224,116,31,.6)">OPTIONAL</span>' : ''}
+                ${held ? '<span style="font-size:9px;color:rgba(232,226,208,.35)">READ ›</span>' : ''}
               </div>`;
             }).join('')}
         </div>
         <div style="margin-top:14px;font-size:10px;letter-spacing:.16em;color:${codaHeld ? '#9fbb74' : 'rgba(232,226,208,.4)'}">
           ${codaHeld ? 'ARCHIVE COMPLETE — THE 1973 CODA IS OPEN' : `${codaCount} / ${codaTotal} REQUIRED FOR THE 1973 CODA`}
         </div>
+        ${intelCount ? '<div style="margin-top:8px;font-size:9px;letter-spacing:.14em;color:rgba(232,226,208,.28)">SELECT A RECOVERED DOCUMENT TO READ IT</div>' : ''}
+      </div>
+    `;
+    this.show('dossier');
+  }
+
+  /**
+   * Read one recovered document. Every entry in the manifest carries Arabic
+   * title and body text that nothing in the game rendered until now — the
+   * dossier only ever echoed ids. The pane mirrors the mission-reading feel:
+   * the Arabic on the page, the English underneath as the operative's gloss.
+   */
+  showIntel(id) {
+    const g = this.game;
+    const doc = INTELLIGENCE.find((d) => d.id === id);
+    if (!doc || !(g.save.progress.intel || {})[id]) return;
+    this.reading = id;
+    const arabicOnPage = g.settings.showArabic !== false;
+    this.root.querySelector('#dossier-body').innerHTML = `
+      <div class="back-btn" data-act="dossier-back" style="margin-bottom:18px">‹ INTELLIGENCE INDEX</div>
+      <div class="eyebrow">ARCHIVE BOX 07 · CHAPTER ${String(doc.chapter).padStart(2, '0')} · ${doc.mission}</div>
+      <h3 style="font-size:20px;letter-spacing:.1em;color:#e8e2d0;margin:10px 0 4px">${doc.title.toUpperCase()}</h3>
+      <div style="font-size:15px;color:rgba(232,226,208,.5);margin-bottom:22px;font-family:'Noto Naskh Arabic',serif;direction:rtl">${doc.titleAr}</div>
+      <div style="border-left:2px solid rgba(224,116,31,.55);padding:2px 0 2px 20px;max-width:720px">
+        ${arabicOnPage
+          ? `<div style="direction:rtl;text-align:right;font-family:'Noto Naskh Arabic',serif;font-size:19px;line-height:2.1;color:rgba(232,226,208,.86)">${doc.bodyAr}</div>`
+          : ''}
+        <div style="font-size:12.5px;line-height:2.05;color:rgba(232,226,208,${arabicOnPage ? '.62' : '.88'});letter-spacing:.02em;margin-top:${arabicOnPage ? '18' : '0'}px">${doc.body}</div>
+      </div>
+      <div style="margin-top:22px;display:flex;gap:22px;font-size:9px;letter-spacing:.18em;color:rgba(232,226,208,.35)">
+        <span>ERA ${doc.chapter <= 1 ? '1973' : 'PRESENT DAY'}</span>
+        <span>${doc.missable ? 'OPTIONAL RECORD' : 'CAMPAIGN RECORD'}</span>
+        ${doc.epilogue ? '<span style="color:rgba(224,116,31,.7)">EPILOGUE</span>' : ''}
       </div>
     `;
     this.show('dossier');
