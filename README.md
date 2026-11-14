@@ -216,3 +216,27 @@ Listed so nobody has to discover it the hard way:
    single-room arenas rather than full floor plates.
 6. Chapter 03's interview dialogue wheel and faction suspicion meter are design only. The hub,
    the branching decision, the forensics minigame and the rooftop ambush are all real.
+
+## التجربة على لينكس (Linux build)
+
+نسخة جاهزة للتجربة، محتاجة **Node.js 18+** ومتصفح فيه **WebGL 2**، وبتشتغل من غير إنترنت:
+
+```bash
+tar -xzf shadow-protocol-nasser-07-linux-v1.0.0-rc1.tar.gz
+cd shadow-protocol-nasser-07-linux
+./play.sh
+```
+
+المتصفح بيفتح لوحده على `http://127.0.0.1:7431/`.
+
+**ليه محتاجة سيرفر؟** اللعبة بتحمّل موديلات `.glb`، والمتصفحات بتمنع تحميلها من صفحات
+`file://`. لو فتحت `dist/index.html` دبل كليك هتطلع شاشة سودا — دي حماية المتصفح مش عطل
+في اللعبة. الصفحة بتشرح ده بنفسها بدل ما تسكت.
+
+إعادة بناء النسخة بعد أي تغيير:
+
+```bash
+cd web && npm run build && node tools/package-linux.mjs
+```
+
+الملف المرفوع في `releases/` هو build artifact — بيقدم بمجرد ما الكود يتغيّر.
