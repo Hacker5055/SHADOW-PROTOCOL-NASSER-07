@@ -17,3 +17,8 @@ ShadowProtocol/Content/StarterContent/
 # Local tooling
 __pycache__/
 *.pyc
+
+# Packaged Linux build (published as a release asset, not committed)
+web/dist-linux/
+web/shadow-protocol-nasser-07-linux/
+web/*.tar.gz
