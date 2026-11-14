@@ -310,6 +310,82 @@ export function buildWeaponModel(id) {
   return withMuzzle(g);
 }
 
+/**
+ * Fit a downloaded weapon model into the view-model's grip frame.
+ *
+ * Hand-written primitives can be authored straight onto GRIP_POINTS. A model
+ * pulled off a CC0 pack cannot: it arrives facing whichever way its author
+ * chose, at whatever scale, with its pistol grip nowhere near our trigger hand.
+ * Eyeballing an offset for it is how the arms end up holding air.
+ *
+ * So the fit is solved instead of guessed. Two named anchors on the model (its
+ * magazine and its trigger) are mapped onto our two grip targets by a scale, a
+ * roll about the barrel axis and a translation. That is a two-point similarity
+ * fit, so both hands land exactly on real geometry whatever the source pack
+ * did — and the same routine fits the remaining twelve weapons later.
+ *
+ * Returns the muzzle offset in mount space, for WeaponRuntime's flash.
+ */
+export function fitWeaponModel(scene, opts = {}) {
+  const root = new THREE.Group();
+  root.name = opts.name || 'fittedWeapon';
+  scene.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = box.getSize(new THREE.Vector3());
+  const centre = box.getCenter(new THREE.Vector3());
+
+  // Match the frame the primitives were validated in: 0.94 m overall length,
+  // receiver centred where buildWeaponModel('akm') puts it, muzzle toward -Z.
+  //
+  // An earlier version fitted the model's own trigger/magazine nodes onto our
+  // two grip points. That is the textbook way to retarget a weapon, and it
+  // failed here for a real reason worth writing down: our two grip points are
+  // only ~10 cm apart (the support hand sits on the magazine well because the
+  // 0.473 m arm reach cannot put it on the handguard), while a real AKM's two
+  // grips are ~35 cm apart. Solving that mismatch with a roll spins the rifle
+  // 65 degrees onto its side. Matching the enclosing frame instead keeps the
+  // weapon upright and exactly as large as the model it replaces, so the
+  // framing, the muzzle flash and the validated arm poses all still hold.
+  const targetLength = opts.length || 0.94;
+  const targetCentre = new THREE.Vector3(...(opts.centre || [0, -0.0593, -0.18]));
+
+  const along = Math.max(size.z, size.x, 1e-6);
+  const scale = targetLength / along;
+
+  // If the pack exports the barrel along X, spin it onto Z first. This is a
+  // right angle, not a fitted angle, so it cannot produce a sideways rifle.
+  if (size.x > size.z) {
+    scene.rotation.y = Math.PI / 2;
+    scene.updateMatrixWorld(true);
+  }
+
+  root.scale.setScalar(scale);
+  root.add(scene);
+  root.updateMatrixWorld(true);
+  const b2 = new THREE.Box3().setFromObject(root);
+  const c2 = b2.getCenter(new THREE.Vector3());
+  root.position.add(targetCentre.clone().sub(c2));
+  root.updateMatrixWorld(true);
+
+  const b3 = new THREE.Box3().setFromObject(root);
+  const c3 = b3.getCenter(new THREE.Vector3());
+  const muzzleLocal = new THREE.Vector3(0, c3.y + 0.02, c3.z - targetLength / 2 + 0.02);
+
+  return {
+    root,
+    muzzle: muzzleLocal,
+    scale,
+    roll: 0,
+    size: b3.getSize(new THREE.Vector3()),
+    // Residual against the frame we asked for: this is the honest number.
+    fitError: {
+      length: +Math.abs(b3.getSize(new THREE.Vector3()).z - targetLength).toFixed(4),
+      centre: +c3.distanceTo(targetCentre).toFixed(4)
+    }
+  };
+}
+
 function withMuzzle(g) {
   const muzzle = new THREE.Object3D();
   muzzle.position.set(0, 0.02, -0.66);

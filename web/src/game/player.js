@@ -8,7 +8,7 @@
  * (see docs/03_TECHNICAL_ARCHITECTURE.md §4).
  */
 import * as THREE from 'three';
-import { WeaponRuntime, WEAPONS } from './weapons.js';
+import { WeaponRuntime, WEAPONS, loadSourcedWeapon, applySourcedWeapon } from './weapons.js';
 import { FirstPersonView, loadSoldierArmsFromGLB, ARM_STATE } from './viewmodel.js';
 
 const DEG = Math.PI / 180;
@@ -158,6 +158,28 @@ export class Player {
     this.weapon.model.position.set(0, 0, 0);
     this.weapon.model.rotation.set(0, 0, 0);
     if (remount) this._alignWeaponToHand();
+    this._upgradeWeaponModel(this.weapon);
+  }
+
+  /**
+   * Replace a weapon's primitive model with its fitted CC0 source model.
+   *
+   * Deliberately fire-and-forget and idempotent: the primitives are already
+   * on screen and working, the model swap is cosmetic, and a 502 on the asset
+   * must leave the player holding a rifle rather than nothing.
+   */
+  _upgradeWeaponModel(runtime) {
+    if (!runtime || runtime.sourced || runtime._upgrading) return;
+    runtime._upgrading = true;
+    loadSourcedWeapon(runtime.def.id).then((fitted) => {
+      runtime._upgrading = false;
+      if (!fitted) return;
+      // Only swap if this runtime is still the equipped one; otherwise the
+      // model will be pulled in by _upgradeWeaponModel when it is re-equipped.
+      applySourcedWeapon(runtime, fitted);
+      if (this.weapon !== runtime) this.weaponHolder.remove(runtime.model);
+      else this._alignWeaponToHand();
+    });
   }
 
   /**

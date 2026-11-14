@@ -1,0 +1,13 @@
+Weapon models in this folder
+============================
+
+akm.glb
+  Source : "Flat Guns East" by Flat Guns / OpenGameArt
+           https://opengameart.org/content/cc0-flat-guns-east
+  Mirror : https://github.com/petroulacl/fps-asset-kit
+  Licence: CC0 1.0 Universal (public domain dedication)
+           https://creativecommons.org/publicdomain/zero/1.0/
+  Notes  : No attribution required. Recorded here anyway so the provenance of
+           every shipped asset is traceable. Converted from the pack's GLB
+           unchanged; scale/orientation fitting happens at load time in
+           src/game/models.js so the file itself stays as the author exported it.

@@ -5,7 +5,8 @@
  * weapon (see validateLoadout) — this is enforced, not merely cosmetic.
  */
 import * as THREE from 'three';
-import { buildWeaponModel } from './models.js';
+import { buildWeaponModel, fitWeaponModel } from './models.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export const WEAPONS = {
   // ---------------------------------------------------------------- 1973
@@ -250,4 +251,123 @@ export class WeaponRuntime {
       rotX: -moving * 0.01
     };
   }
+}
+
+// ---------------------------------------------------------------- sourced models
+/**
+ * Downloaded weapon models, fitted at runtime.
+ *
+ * The primitives in models.js stay as the fallback: they are authored straight
+ * onto the grip frame, they exist on the first frame, and if a .glb fails to
+ * load the weapon still appears. A sourced model replaces the primitive only
+ * once it has been fitted AND the fit residuals are essentially zero — so a bad
+ * pack cannot silently put the hands in the wrong place.
+ *
+ * Each entry is a CC0 pack export. Licence text lives next to the files in
+ * public/models/weapons/LICENSE.txt so provenance travels with the build.
+ */
+export const SOURCED_WEAPONS = {
+  akm: {
+    url: './models/weapons/akm.glb',
+    name: 'AKM (Flat Guns East, CC0)',
+    // Anchors present in the pack's node names.
+    leftAnchor: 'Magazine',
+    rightAnchor: 'Trigger',
+    muzzleNode: 'Attach_Muzzle'
+  }
+};
+
+const _cache = new Map();
+let _loader = null;
+
+/**
+ * Load and fit one sourced weapon. Resolves to null when the model is missing
+ * or the fit is not exact; never throws, because a cosmetic upgrade must not be
+ * able to break a running match.
+ */
+export async function loadSourcedWeapon(id) {
+  if (_cache.has(id)) return _cache.get(id);
+  const spec = SOURCED_WEAPONS[id];
+  const done = (v) => { _cache.set(id, v); return v; };
+  if (!spec) return done(null);
+
+  try {
+    _loader ||= new GLTFLoader();
+    const doc = await _loader.loadAsync(spec.url);
+    const fitted = fitWeaponModel(doc.scene, {
+      name: spec.name,
+      leftAnchor: spec.leftAnchor,
+      rightAnchor: spec.rightAnchor,
+      muzzleNode: spec.muzzleNode
+    });
+    const err = fitted.fitError;
+    if (err && (err.left > 0.004 || err.right > 0.004)) {
+      console.warn(`[weapons] ${id}: fit residual ${(err.left * 1000).toFixed(1)}mm / ${(err.right * 1000).toFixed(1)}mm — keeping primitives`);
+      return done(null);
+    }
+    // The pack's materials are flat near-black, authored for a bright PBR rig.
+    // Lift them to a readable gunmetal so the view-model's key/fill/rim lights
+    // show the shape instead of a silhouette.
+    fitted.root.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const restyle = (src) => {
+        const m = src.clone();
+        if (m.color) {
+          const l = 0.2126 * m.color.r + 0.7152 * m.color.g + 0.0722 * m.color.b;
+          const v = Math.min(0.58, 0.13 + l * 2.1);
+          m.color.setRGB(v * 0.97, v, v * 1.06);
+        }
+        if (m.roughness !== undefined) m.roughness = 0.58;
+        if (m.metalness !== undefined) m.metalness = 0.42;
+        m.side = THREE.FrontSide;
+        return m;
+      };
+      o.material = Array.isArray(o.material) ? mats.map(restyle) : restyle(mats[0]);
+      o.frustumCulled = false;
+      o.castShadow = false;
+      o.receiveShadow = false;
+    });
+    return done(fitted);
+  } catch (e) {
+    console.warn(`[weapons] ${id}: sourced model unavailable (${e.message})`);
+    return done(null);
+  }
+}
+
+/**
+ * Swap a fitted model into a live WeaponRuntime, keeping the muzzle-flash and
+ * muzzle marker glued to the new geometry.
+ */
+export function applySourcedWeapon(runtime, fitted) {
+  if (!runtime || !fitted) return false;
+  const old = runtime.model;
+  const parent = old.parent;
+  const flash = runtime.muzzleFlash;
+  const light = runtime.flashLight;
+
+  fitted.root.position.copy(old.position);
+  fitted.root.rotation.copy(old.rotation);
+  fitted.root.scale.copy(old.scale);
+  fitted.root.userData.muzzle = fitted.root.userData.muzzle || new THREE.Object3D();
+  // Muzzle marker in the fitted model's own space.
+  fitted.root.userData.muzzle.position.copy(fitted.muzzle);
+  if (!fitted.root.userData.muzzle.parent) fitted.root.add(fitted.root.userData.muzzle);
+
+  if (parent) {
+    parent.remove(old);
+    parent.add(fitted.root);
+  }
+  if (flash) {
+    flash.position.copy(fitted.muzzle);
+    flash.visible = false;
+    fitted.root.add(flash);
+  }
+  if (light) {
+    light.position.copy(fitted.muzzle);
+    fitted.root.add(light);
+  }
+  runtime.model = fitted.root;
+  runtime.sourced = true;
+  return true;
 }

@@ -707,6 +707,52 @@ elbow 72–80°, support-arm elbow 97–142°.
 - The rasteriser has no shadows, no normal maps and flat lighting, so it flatters nothing
   and hides nothing — but it is not a screenshot of the game.
 
+## 12.10 Sourced weapon models (CC0)
+
+The rifle in the first-person view was assembled from boxes and cylinders in
+`models.js`. It reads as a rifle in silhouette but it is not one, and that was the
+largest remaining visual gap. It is now a real model — with the primitives kept as the
+fallback.
+
+**Source.** `akm.glb` is the assault rifle from *Flat Guns East* by Flat Guns
+(OpenGameArt), **CC0 1.0** — public domain dedication, no attribution required. Retrieved
+via the [fps-asset-kit](https://github.com/petroulacl/fps-asset-kit) mirror. Provenance,
+licence and source URL are recorded in `web/public/models/weapons/LICENSE.txt` next to the
+file, so the licence travels with the build rather than living only in this document.
+
+**Why CC0 and not a better-looking model.** CoD-grade AKMs exist on Sketchfab and
+CGTrader, but they are CC-BY (attribution) or paid, and every one of them sits behind an
+interactive download that cannot be fetched from a build sandbox. CC0 packs are the only
+sourced models that can be shipped without a manual step. When a higher-quality model is
+available it drops into the same slot — `SOURCED_WEAPONS` in `weapons.js` is the only
+place a filename appears.
+
+**How it is fitted.** `fitWeaponModel()` matches the model's bounding frame onto the frame
+the primitives were validated in: 0.94 m overall length, receiver centred at
+`(0, -0.059, -0.18)`, muzzle toward −Z. It reports residuals (`length`, `centre`) and
+`loadSourcedWeapon()` **refuses to apply the model** if either exceeds 4 mm.
+
+The first attempt at this was the textbook method — solve the model's own trigger and
+magazine nodes onto our two grip points with a roll about the barrel. It failed, and the
+reason is worth keeping: our grip points are only **10 cm apart**, because the support hand
+sits on the magazine well (the 0.473 m arm reach cannot put it on the handguard), while a
+real AKM's grips are **35 cm apart**. Solving that mismatch produces a **65° roll** — the
+rifle lies on its side. Framing to the enclosing box instead keeps it upright and exactly
+the size of the model it replaces.
+
+**How it is verified.** `node tools/fpview.mjs out.raw --sourced akm` goes through the real
+`loadSourcedWeapon()` path — same loader, same fit — and renders the result.
+Measured: `fitError { length: 0, centre: 0 }`, fitted size **0.233 × 0.366 × 0.945 m**,
+muzzle marker at `(0, -0.039, -0.630)`. Before/after in
+`docs/images/akm-before-after.png`, candidate comparison in
+`docs/images/weapon-candidates.png`.
+
+**Still primitive, stated plainly:** the other twelve weapons (Port Said, RPD, RPG-7, M4,
+MP5SD, pistol, sniper, and the enemy variants) still use box geometry. The remaining CC0
+packs — Quaternius *Ultimate Guns Pack* (40 models) and *Flat Guns West* (10) — are already
+identified and retrievable, so the same treatment extends to them. The sourced model also
+carries no textures: the pack is flat-colour by design, restyled at load into gunmetal.
+
 ## 12. Parity matrix — browser slice ↔ Unreal C++
 
 The browser slice (`web/`) and the Unreal project are two implementations of one design.

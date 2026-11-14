@@ -45,8 +45,11 @@ const argOf = (name, dflt) => {
   return i >= 0 ? args[i + 1] : dflt;
 };
 const OUT = args[0] && !args[0].startsWith('--') ? args[0] : 'fpview.raw';
+const CANDIDATE = (() => { const i = args.indexOf('--glb'); return i >= 0 ? args[i + 1] : ''; })();
 const POSE = argOf('--pose', 'idle');
 const OVERRIDE = argOf('--override', '');
+const ARMS = argOf('--arms', 'on');
+const SOURCED = argOf('--sourced', '');
 const WEAPON = argOf('--weapon', 'akm');
 const W = parseInt(argOf('--w', '640'), 10);
 const H = parseInt(argOf('--h', '360'), 10);
@@ -60,6 +63,10 @@ const MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.ktx2': 'image/ktx2'
 };
 const server = http.createServer((req, res) => {
+  if (req.url === '/__candidate.glb') {
+    res.writeHead(200, { 'content-type': 'model/gltf-binary' });
+    res.end(candidateBytes); return;
+  }
   const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '');
   const file = path.join(PUBLIC, rel);
   if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -68,6 +75,9 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
 });
+// A --glb candidate is served from an in-memory route: we do not want stray
+// candidate files sitting in public/ while they are only being evaluated.
+const candidateBytes = CANDIDATE ? fs.readFileSync(CANDIDATE) : null;
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
@@ -75,15 +85,84 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 const { loadSoldierArmsFromGLB, FirstPersonView } = await import(path.join(ROOT, 'src/game/viewmodel.js'));
 const { buildWeaponModel } = await import(path.join(ROOT, 'src/game/models.js'));
 
-const rig = await loadSoldierArmsFromGLB(`${BASE}/models/Soldier.glb`);
-const view = new FirstPersonView({ arms: rig });
+// --arms off renders the weapon alone, which is how a candidate model is judged.
+const rig = ARMS === 'off' ? null : await loadSoldierArmsFromGLB(`${BASE}/models/Soldier.glb`);
+const view = new FirstPersonView(rig ? { arms: rig } : {});
 if (OVERRIDE) {
   const [x, y, z, rx, ry, rz] = OVERRIDE.split(',').map(Number);
   const { ARM_POSES } = await import(path.join(ROOT, 'src/game/viewmodel.js'));
   ARM_POSES[POSE] = { holder: [x, y, z], holderRot: [rx, ry, rz] };
 }
 const gun = buildWeaponModel(WEAPON);
-view.weaponMount.add(gun);
+const GLB_WEAPON = CANDIDATE;
+if (SOURCED) {
+  // Go through the REAL game path: the same loader and the same two-anchor
+  // fit that player.js uses, so this frame is what the player actually sees.
+  const { SOURCED_WEAPONS, loadSourcedWeapon } = await import(path.join(ROOT, 'src/game/weapons.js'));
+  if (SOURCED_WEAPONS[SOURCED]) {
+    SOURCED_WEAPONS[SOURCED].url = `${BASE}/models/weapons/${SOURCED}.glb`;
+  }
+  const fitted = await loadSourcedWeapon(SOURCED);
+  if (!fitted) throw new Error(`sourced ${SOURCED}: load or fit rejected`);
+  view.weaponMount.add(fitted.root);
+  const box = new THREE.Box3().setFromObject(fitted.root);
+  console.log(JSON.stringify({
+    sourced: SOURCED,
+    fitErrorMm: fitted.fitError,
+    scale: +fitted.scale.toFixed(4),
+    rollDeg: +(fitted.roll * 180 / Math.PI).toFixed(2),
+    size: box.getSize(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3)),
+    muzzle: fitted.muzzle.toArray().map((n) => +n.toFixed(3))
+  }));
+} else if (GLB_WEAPON) {
+  // Load a candidate rifle from a local .glb and fit it into the same mount.
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+  const doc = await new GLTFLoader().loadAsync(`${BASE}/__candidate.glb`);
+  const g = doc.scene;
+  const box = new THREE.Box3().setFromObject(g);
+  const size = box.getSize(new THREE.Vector3());
+  // Packs disagree on which axis is "forward". Whichever horizontal axis is
+  // longer is the barrel; rotate so the muzzle points down -Z like ours.
+  if (size.x > size.z) {
+    g.rotation.y = Math.PI / 2;
+    g.updateMatrixWorld(true);
+  }
+  const box2 = new THREE.Box3().setFromObject(g);
+  const size2 = box2.getSize(new THREE.Vector3());
+  // Normalise to a real AKM's 0.88 m overall length.
+  const scale = 0.88 / Math.max(size2.z, 1e-6);
+  g.scale.multiplyScalar(scale);
+  g.updateMatrixWorld(true);
+  const b3 = new THREE.Box3().setFromObject(g);
+  const c3 = b3.getCenter(new THREE.Vector3());
+  g.position.sub(c3);
+  g.position.z -= 0.06;                     // receiver sits under the grips
+  // Flat-colour packs ship near-black baseColours (0.0036 luminance), which is
+  // correct for a PBR metal under a bright light and unreadable under flat
+  // shading. Lift each material by its own luminance so the shapes read while
+  // keeping the pack's tonal separation.
+  g.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    o.material = Array.isArray(o.material) ? mats.map(restyle) : restyle(mats[0]);
+    o.frustumCulled = false;
+  });
+  function restyle(m) {
+    const c = m.clone ? m.clone() : m;
+    if (c.color) {
+      const l = 0.2126 * c.color.r + 0.7152 * c.color.g + 0.0722 * c.color.b;
+      const v = Math.min(0.62, 0.14 + l * 1.9);
+      c.color.setRGB(v * 0.98, v, v * 1.04);   // faintly cool gunmetal
+      if (c.roughness !== undefined) c.roughness = 0.62;
+      if (c.metalness !== undefined) c.metalness = 0.35;
+    }
+    return c;
+  }
+  view.weaponMount.add(g);
+  console.log(JSON.stringify({ candidate: GLB_WEAPON, rawSize: size.toArray().map((n) => +n.toFixed(3)), scale: +scale.toFixed(3) }));
+} else {
+  view.weaponMount.add(gun);
+}
 
 // Settle the animation state (bob/idle lerp) before capturing a frame.
 const ctx = { speed: POSE === 'run' ? 5 : 0, aiming: POSE === 'ads' };
@@ -258,7 +337,7 @@ let armPx = 0;
 for (let i = 0; i < W * H; i++) if (depth[i] < Infinity) covered++;
 const hands = {};
 for (const side of ['right', 'left']) {
-  const b = view.rig[`${side}Hand`];
+  const b = view.rig && view.rig[`${side}Hand`];
   if (b) hands[side] = b.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3));
 }
 const gunBox = new THREE.Box3().setFromObject(gun);
@@ -268,7 +347,7 @@ const ndc = gunBox.getCenter(new THREE.Vector3()).project(cam);
 console.log(JSON.stringify({
   out: OUT, png: pngPath, size: [W, H], pose: POSE, weapon: WEAPON,
   coverage: +(covered / (W * H)).toFixed(3),
-  armMeshTriangles: rig.stats ? rig.stats.armTriangles : null,
+  armMeshTriangles: rig && rig.stats ? rig.stats.armTriangles : null,
   gunLength: +gunSize.z.toFixed(3),
   gunCentreNdc: [+ndc.x.toFixed(2), +ndc.y.toFixed(2)],
   hands,
